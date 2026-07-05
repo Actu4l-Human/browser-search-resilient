@@ -39,6 +39,7 @@ export interface ClassificationInput {
   content?: string;
   contentType?: string;
   finalUrl?: string;
+  rendered?: boolean;
 }
 
 export function detectChallenge(input: ClassificationInput): string | undefined {
@@ -66,7 +67,17 @@ export function classify(input: ClassificationInput): { outcome: FetchOutcome; r
     return { outcome: 'authentication_required', reason: 'Page requires authentication or a subscription' };
   }
   if (JS_PATTERNS.some((pattern) => pattern.test(text))) {
-    return { outcome: 'js_required', reason: 'Page explicitly requires JavaScript' };
+    const textWithoutJsNotice = JS_PATTERNS.reduce(
+      (value, pattern) => value.replace(new RegExp(pattern.source, `${pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`}`), ' '),
+      text,
+    ).replace(/\s+/g, ' ').trim();
+
+    // Browser-rendered pages sometimes leave their no-JS placeholder in the DOM
+    // after real content has loaded. Treat that as success when substantial
+    // rendered content exists; direct HTTP responses still escalate immediately.
+    if (!input.rendered || textWithoutJsNotice.length < 160) {
+      return { outcome: 'js_required', reason: 'Page explicitly requires JavaScript' };
+    }
   }
   if (status !== undefined && status >= 400) {
     if ([403, 406, 418, 503].includes(status)) return { outcome: 'antibot_challenge', reason: `Potential browser challenge: HTTP ${status}` };

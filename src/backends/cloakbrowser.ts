@@ -78,6 +78,7 @@ export async function fetchCloakBrowser(url: string, maxCharacters: number, incl
       content: limited.value,
       contentType: response?.headers?.()['content-type'],
       finalUrl: current.url,
+      rendered: true,
     });
     const status = response?.status?.();
     const contentType = response?.headers?.()['content-type'];

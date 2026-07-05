@@ -105,7 +105,7 @@ export async function fetchCamofox(url: string, maxCharacters: number, includeLi
 
     await resolvePublicUrl(finalUrl);
     const limited = truncate(normalizeWhitespace(content), maxCharacters);
-    const classification = classify({ title, content: limited.value, finalUrl });
+    const classification = classify({ title, content: limited.value, finalUrl, rendered: true });
     return {
       backend: 'camofox', outcome: classification.outcome,
       ...(classification.reason ? { reason: classification.reason } : {}),
