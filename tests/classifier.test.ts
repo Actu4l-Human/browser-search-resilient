@@ -17,7 +17,6 @@ test('authentication is terminal while JS pages escalate', () => {
   assert.equal(shouldEscalate(classify({ status: 200, content: 'Please enable JavaScript to continue' }).outcome), true);
 });
 
-
 test('browser-rendered content wins over a stale JavaScript placeholder', () => {
   const content = [
     'Enable JavaScript to see products',
@@ -39,8 +38,5 @@ test('browser-rendered content wins over a stale JavaScript placeholder', () => 
 });
 
 test('browser page with only a JavaScript placeholder still escalates', () => {
-  assert.equal(
-    classify({ status: 200, content: 'Enable JavaScript to continue', rendered: true }).outcome,
-    'js_required',
-  );
+  assert.equal(classify({ status: 200, content: 'Enable JavaScript to continue', rendered: true }).outcome, 'js_required');
 });

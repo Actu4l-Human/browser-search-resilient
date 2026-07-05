@@ -3,7 +3,7 @@
 A deterministic MCP and REST service for AI agents that need current public web content.
 
 ```text
-web_search: SearXNG → Camofox search → CloakBrowser search
+web_search: SearXNG → browser search fallback (scrapes a search result page through the fetch chain)
 web_fetch:  direct HTTP → Camofox → CloakBrowser
 ```
 
@@ -41,6 +41,7 @@ Endpoints:
 - MCP: `http://127.0.0.1:8088/mcp`
 - Health: `http://127.0.0.1:8088/healthz`
 - Backend readiness: `http://127.0.0.1:8088/readyz`
+- Metrics (OpenMetrics): `http://127.0.0.1:8088/metrics`
 - REST search: `POST /v1/search`
 - REST fetch: `POST /v1/fetch`
 - REST research: `POST /v1/research`
@@ -76,6 +77,10 @@ See `docs/clients.md` for Kilo, OpenCode, and Pydantic Deep configuration.
 - A CloakBrowser Pro key is optional; set `CLOAKBROWSER_LICENSE_KEY` to use the current Pro binary.
 - `Camofox` crash telemetry is disabled by the supplied Compose configuration.
 - SearXNG is an unmodified sidecar. Review and tune its engines for your network and acceptable-use requirements.
+- The orchestrator binds to `127.0.0.1` by default; the Compose override publishes it on the host loopback. Set `HOST` explicitly and always set `BROWSER_SEARCH_API_KEY` when binding a non-loopback address.
+- Optional features, all off by default: response caching (`CACHE_ENABLED`), per-client rate limiting (`RATE_LIMIT_RPM` / `RATE_LIMIT_BURST`), and robots.txt enforcement (`ROBOTS_ENABLED`).
+- PDF responses (`application/pdf`) are extracted to text by the direct backend.
+- OpenMetrics are exposed at `/metrics`.
 
 ## Upstream
 

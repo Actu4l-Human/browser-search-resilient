@@ -35,7 +35,11 @@ function parseEvaluateResult(payload: unknown): { title: string; url: string; te
   const record = payload as Record<string, unknown>;
   let value: unknown = record.result ?? record.value ?? record.data;
   if (typeof value === 'string') {
-    try { value = JSON.parse(value); } catch { return null; }
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
   }
   if (!value || typeof value !== 'object') return null;
   const result = value as Record<string, unknown>;
@@ -51,6 +55,28 @@ function parseEvaluateResult(payload: unknown): { title: string; url: string; te
           .slice(0, 200)
       : [],
   };
+}
+
+async function waitForReady(tabId: string): Promise<void> {
+  const expression = 'document.readyState';
+  const deadline = Date.now() + Math.min(config.browserTimeoutMs, 15_000);
+  while (Date.now() < deadline) {
+    try {
+      const evaluated = await call(`/tabs/${encodeURIComponent(tabId)}/evaluate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${config.camofoxApiKey}` },
+        body: JSON.stringify({ userId: config.camofoxUserId, expression }),
+      });
+      if (evaluated.ok) {
+        const payload = (await evaluated.json()) as Record<string, unknown>;
+        const ready = String(payload.result ?? payload.value ?? payload.data ?? '').toLowerCase();
+        if (ready === 'complete') return;
+      }
+    } catch {
+      // ignore transient evaluate errors during load
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
 }
 
 export async function fetchCamofox(url: string, maxCharacters: number, includeLinks: boolean): Promise<FetchAttempt> {
@@ -71,7 +97,7 @@ export async function fetchCamofox(url: string, maxCharacters: number, includeLi
     tabId = String(created.tabId ?? created.id ?? '');
     if (!tabId) throw new Error('Camofox did not return a tabId');
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await waitForReady(tabId);
 
     let title = '';
     let finalUrl = typeof created.url === 'string' ? created.url : url;
@@ -107,22 +133,31 @@ export async function fetchCamofox(url: string, maxCharacters: number, includeLi
     const limited = truncate(normalizeWhitespace(content), maxCharacters);
     const classification = classify({ title, content: limited.value, finalUrl, rendered: true });
     return {
-      backend: 'camofox', outcome: classification.outcome,
+      backend: 'camofox',
+      outcome: classification.outcome,
       ...(classification.reason ? { reason: classification.reason } : {}),
       ...(classification.challenge ? { challenge: classification.challenge } : {}),
-      url, finalUrl, title, content: limited.value,
+      url,
+      finalUrl,
+      title,
+      content: limited.value,
       ...(includeLinks ? { links } : {}),
-      elapsedMs: Math.round(performance.now() - started), truncated: limited.truncated,
+      elapsedMs: Math.round(performance.now() - started),
+      truncated: limited.truncated,
     };
   } catch (error) {
     return {
-      backend: 'camofox', outcome: isSecurityPolicyError(error) ? 'policy_denied' : 'network_error', url,
+      backend: 'camofox',
+      outcome: isSecurityPolicyError(error) ? 'policy_denied' : 'network_error',
+      url,
       elapsedMs: Math.round(performance.now() - started),
       reason: error instanceof Error ? error.message : String(error),
     };
   } finally {
     if (tabId) {
-      await call(`/tabs/${encodeURIComponent(tabId)}?userId=${encodeURIComponent(config.camofoxUserId)}`, { method: 'DELETE' }).catch(() => undefined);
+      await call(`/tabs/${encodeURIComponent(tabId)}?userId=${encodeURIComponent(config.camofoxUserId)}`, { method: 'DELETE' }).catch(
+        () => undefined,
+      );
     }
   }
 }

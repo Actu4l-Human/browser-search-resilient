@@ -1,8 +1,14 @@
+import { log } from './util/log.js';
+
 function numberEnv(name: string, fallback: number, min = 1): number {
   const raw = process.env[name];
-  if (!raw) return fallback;
+  if (raw === undefined || raw === '') return fallback;
   const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
+  if (!Number.isFinite(parsed) || parsed < min) {
+    log.warn('Invalid numeric env value; using fallback', { name, value: raw, fallback });
+    return fallback;
+  }
+  return parsed;
 }
 
 function boolEnv(name: string, fallback: boolean): boolean {
@@ -14,11 +20,14 @@ function boolEnv(name: string, fallback: boolean): boolean {
 function csvEnv(name: string, fallback: string[]): string[] {
   const raw = process.env[name];
   if (!raw) return fallback;
-  return raw.split(',').map((item: string) => item.trim()).filter(Boolean);
+  return raw
+    .split(',')
+    .map((item: string) => item.trim())
+    .filter(Boolean);
 }
 
 export const config = {
-  host: process.env.HOST ?? '0.0.0.0',
+  host: process.env.HOST ?? '127.0.0.1',
   port: numberEnv('PORT', 8088),
   apiKey: process.env.BROWSER_SEARCH_API_KEY ?? '',
   allowedHosts: csvEnv('ALLOWED_HOSTS', ['localhost', '127.0.0.1', 'browser-search']),
@@ -26,6 +35,7 @@ export const config = {
 
   searxngUrl: process.env.SEARXNG_URL ?? 'http://searxng:8080',
   camofoxUrl: process.env.CAMOFOX_URL ?? 'http://camofox:9377',
+  egressProxyUrl: process.env.EGRESS_PROXY_URL ?? 'http://egress-proxy:3128',
   camofoxApiKey: process.env.CAMOFOX_API_KEY ?? '',
   camofoxUserId: process.env.CAMOFOX_USER_ID ?? 'resilient-browser-search',
   camofoxSessionKey: process.env.CAMOFOX_SESSION_KEY ?? 'default',
@@ -48,7 +58,23 @@ export const config = {
   browserConcurrency: numberEnv('BROWSER_CONCURRENCY', 2),
   researchConcurrency: numberEnv('RESEARCH_CONCURRENCY', 4),
   searchBrowserFallback: boolEnv('SEARCH_BROWSER_FALLBACK', true),
-  userAgent:
-    process.env.WEB_USER_AGENT ??
-    'Mozilla/5.0 (compatible; ResilientBrowserSearch/0.1; +https://github.com/Actu4l-Human)',
+  userAgent: process.env.WEB_USER_AGENT ?? 'Mozilla/5.0 (compatible; ResilientBrowserSearch/0.1; +https://github.com/actual-human)',
+
+  rateLimitRpm: numberEnv('RATE_LIMIT_RPM', 0),
+  rateLimitBurst: numberEnv('RATE_LIMIT_BURST', 0),
+
+  cacheEnabled: boolEnv('CACHE_ENABLED', false),
+  cacheTtlMs: numberEnv('CACHE_TTL_MS', 60_000),
+  cacheMaxEntries: numberEnv('CACHE_MAX_ENTRIES', 256),
+
+  robotsEnabled: boolEnv('ROBOTS_ENABLED', false),
+  robotsCacheTtlMs: numberEnv('ROBOTS_CACHE_TTL_MS', 3_600_000),
 };
+
+export function warnOnInsecureDefaults(): void {
+  const host = config.host;
+  const loopback = host === '127.0.0.1' || host === '::1' || host === 'localhost';
+  if (!loopback && !config.apiKey) {
+    log.warn('Listening on a non-loopback address without BROWSER_SEARCH_API_KEY; access is unauthenticated', { host });
+  }
+}

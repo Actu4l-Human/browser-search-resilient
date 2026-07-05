@@ -20,10 +20,15 @@ export interface ResolvedAddress {
 const BLOCKED_HOSTS = new Set([
   'localhost',
   'localhost.',
+  'metadata',
   'metadata.google.internal',
   'metadata.google.internal.',
+  'instance-data',
+  'instance-data.ec2.internal',
   'instance-data.pai.googleapis.com',
   'instance-data.pai.googleapis.com.',
+  'metadata.azure.com',
+  'metadata.aws.internal',
 ]);
 
 function ipv4ToInt(ip: string): number {
@@ -58,16 +63,83 @@ const BLOCKED_V4: Array<[string, number]> = [
   ['240.0.0.0', 4],
 ];
 
+const IPV6_BIG = (1n << 128n) - 1n;
+
+function groupCount(group: string): number {
+  return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(group) ? 2 : 1;
+}
+
+function ipv6ToBigInt(ip: string): bigint {
+  const scoped = ip.split('%')[0]!.toLowerCase();
+  let segments: string[];
+  if (scoped.includes('::')) {
+    const halves = scoped.split('::');
+    if (halves.length !== 2) throw new Error(`Invalid IPv6 address: ${ip}`);
+    const left = halves[0] ? halves[0]!.split(':') : [];
+    const right = halves[1] ? halves[1]!.split(':') : [];
+    const used = [...left, ...right].reduce((sum, group) => sum + groupCount(group), 0);
+    const missing = 8 - used;
+    if (missing < 0) throw new Error(`Invalid IPv6 address: ${ip}`);
+    segments = [...left, ...Array.from({ length: missing }, () => '0'), ...right];
+  } else {
+    segments = scoped.split(':');
+  }
+  const expanded: string[] = [];
+  for (const group of segments) {
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(group)) {
+      const v4 = ipv4ToInt(group) >>> 0;
+      expanded.push(((v4 >>> 16) & 0xffff).toString(16));
+      expanded.push((v4 & 0xffff).toString(16));
+    } else {
+      expanded.push(group);
+    }
+  }
+  if (expanded.length !== 8) throw new Error(`Invalid IPv6 address: ${ip}`);
+  let result = 0n;
+  for (const group of expanded) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) throw new Error(`Invalid IPv6 group: ${group}`);
+    result = (result << 16n) | BigInt(Number.parseInt(group, 16));
+  }
+  return result;
+}
+
+function inCidr6(ip: string, network: string, prefix: number): boolean {
+  const ipInt = ipv6ToBigInt(ip);
+  const networkInt = ipv6ToBigInt(network);
+  const mask = prefix === 0 ? 0n : (IPV6_BIG << BigInt(128 - prefix)) & IPV6_BIG;
+  return (ipInt & mask) === (networkInt & mask);
+}
+
+const BLOCKED_V6: Array<[string, number]> = [
+  ['::', 128],
+  ['::1', 128],
+  ['64:ff9b:1::', 48],
+  ['100::', 64],
+  ['2001::', 23],
+  ['2001:db8::', 32],
+  ['2002::', 16],
+  ['fc00::', 7],
+  ['fe80::', 10],
+  ['fec0::', 10],
+  ['ff00::', 8],
+];
+
 export function isBlockedAddress(address: string): boolean {
   const normalized = address.toLowerCase().split('%')[0] ?? address.toLowerCase();
   const family = isIP(normalized);
   if (family === 4) return BLOCKED_V4.some(([network, prefix]) => inCidr4(normalized, network, prefix));
   if (family === 6) {
-    if (normalized === '::' || normalized === '::1') return true;
-    if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) return true;
-    if (normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('ff')) return true;
-    const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    return mapped ? isBlockedAddress(mapped[1]!) : false;
+    const v6Blocked = BLOCKED_V6.some(([network, prefix]) => {
+      try {
+        return inCidr6(normalized, network, prefix);
+      } catch {
+        return false;
+      }
+    });
+    if (v6Blocked) return true;
+    const embeddedV4 = normalized.match(/:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+    if (embeddedV4) return isBlockedAddress(embeddedV4[1]!);
+    return false;
   }
   return true;
 }
@@ -101,7 +173,10 @@ export async function resolvePublicUrl(raw: string): Promise<{ url: URL; address
   }
   const records = await lookup(hostname, { all: true, verbatim: true });
   if (records.length === 0) throw new Error(`DNS returned no addresses for ${hostname}`);
-  const addresses = records.map((record: { address: string; family: number }) => ({ address: record.address, family: record.family as 4 | 6 }));
+  const addresses = records.map((record: { address: string; family: number }) => ({
+    address: record.address,
+    family: record.family as 4 | 6,
+  }));
   const blocked = addresses.find((record: ResolvedAddress) => isBlockedAddress(record.address));
   if (blocked) throw new SecurityPolicyError(`DNS resolved ${hostname} to blocked address ${blocked.address}`);
   return { url, addresses };

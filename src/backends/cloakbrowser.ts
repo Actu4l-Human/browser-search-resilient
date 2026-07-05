@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { isSecurityPolicyError, resolvePublicUrl } from '../security/url.js';
 import type { FetchAttempt, LinkResult } from '../types.js';
 import { normalizeWhitespace, truncate } from '../util/text.js';
+import { log } from '../util/log.js';
 
 interface PageState {
   title: string;
@@ -13,33 +14,83 @@ interface PageState {
   links: LinkResult[];
 }
 
+interface CachedBrowser {
+  promise: Promise<any>;
+  options: Record<string, unknown>;
+}
+
+let cachedBrowser: CachedBrowser | undefined;
+
+function launchOptions(): Record<string, unknown> {
+  return {
+    headless: config.cloakHeadless,
+    humanize: config.cloakHumanize,
+    ...(config.cloakProxy ? { proxy: config.cloakProxy } : {}),
+    ...(config.cloakGeoIp ? { geoip: true } : {}),
+    ...(config.cloakLicenseKey ? { licenseKey: config.cloakLicenseKey } : {}),
+    ...(config.cloakTimezone ? { timezone: config.cloakTimezone } : {}),
+    ...(config.cloakLocale ? { locale: config.cloakLocale } : {}),
+  };
+}
+
+async function getBrowser(): Promise<any> {
+  if (cachedBrowser) {
+    try {
+      const browser = await cachedBrowser.promise;
+      if (browser && !(browser as any)?.isClosed?.()) return browser;
+    } catch {
+      // previous launch failed; fall through to relaunch
+    }
+  }
+  // Reuse the previously captured launch options on relaunch so a transient
+  // disconnect keeps the same proxy/geo/locale configuration; compute fresh on
+  // the very first launch.
+  const options = cachedBrowser?.options ?? launchOptions();
+  const promise = (async () => {
+    const browser = await launch(options);
+    browser?.on?.('disconnected', () => {
+      log.warn('CloakBrowser disconnected; will relaunch on next request');
+      cachedBrowser = undefined;
+    });
+    return browser;
+  })();
+  cachedBrowser = { promise, options };
+  return promise;
+}
+
+export async function closeCloakBrowser(): Promise<void> {
+  const current = cachedBrowser;
+  cachedBrowser = undefined;
+  if (current) {
+    try {
+      const browser = await current.promise;
+      await browser?.close?.();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 async function state(page: any): Promise<PageState> {
   return page.evaluate(() => ({
     title: document.title || '',
     url: location.href,
     text: document.body?.innerText || '',
-    links: Array.from(document.querySelectorAll('a[href]')).slice(0, 200).map((anchor: any) => ({
-      text: (anchor.innerText || anchor.textContent || '').trim(),
-      url: anchor.href,
-    })),
+    links: Array.from(document.querySelectorAll('a[href]'))
+      .slice(0, 200)
+      .map((anchor: any) => ({
+        text: (anchor.innerText || anchor.textContent || '').trim(),
+        url: anchor.href,
+      })),
   }));
 }
 
 export async function fetchCloakBrowser(url: string, maxCharacters: number, includeLinks: boolean): Promise<FetchAttempt> {
   const started = performance.now();
-  let browser: any;
   let context: any;
   try {
     await resolvePublicUrl(url);
-    browser = await launch({
-      headless: config.cloakHeadless,
-      humanize: config.cloakHumanize,
-      ...(config.cloakProxy ? { proxy: config.cloakProxy } : {}),
-      ...(config.cloakGeoIp ? { geoip: true } : {}),
-      ...(config.cloakLicenseKey ? { licenseKey: config.cloakLicenseKey } : {}),
-      ...(config.cloakTimezone ? { timezone: config.cloakTimezone } : {}),
-      ...(config.cloakLocale ? { locale: config.cloakLocale } : {}),
-    });
+    const browser = await getBrowser();
     context = await browser.newContext();
 
     await context.route('**/*', async (route: any) => {
@@ -64,7 +115,10 @@ export async function fetchCloakBrowser(url: string, maxCharacters: number, incl
     let current = await state(page);
     const deadline = Date.now() + config.challengeWaitMs;
     let detected = detectChallenge({
-      status: response?.status?.(), title: current.title, content: current.text, finalUrl: current.url,
+      status: response?.status?.(),
+      title: current.title,
+      content: current.text,
+      finalUrl: current.url,
     });
     while (detected && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -85,23 +139,35 @@ export async function fetchCloakBrowser(url: string, maxCharacters: number, incl
     const status = response?.status?.();
     const contentType = response?.headers?.()['content-type'];
     return {
-      backend: 'cloakbrowser', outcome: classification.outcome,
+      backend: 'cloakbrowser',
+      outcome: classification.outcome,
       ...(classification.reason ? { reason: classification.reason } : {}),
       ...(classification.challenge ? { challenge: classification.challenge } : {}),
-      url, finalUrl: current.url, title: current.title, content: limited.value,
+      url,
+      finalUrl: current.url,
+      title: current.title,
+      content: limited.value,
       ...(includeLinks ? { links: current.links.filter((link) => /^https?:/i.test(link.url)) } : {}),
       ...(typeof status === 'number' ? { httpStatus: status } : {}),
       ...(typeof contentType === 'string' ? { contentType } : {}),
-      elapsedMs: Math.round(performance.now() - started), truncated: limited.truncated,
+      elapsedMs: Math.round(performance.now() - started),
+      truncated: limited.truncated,
     };
   } catch (error) {
+    if (!isSecurityPolicyError(error)) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/target closed|browser has been closed|connection closed|disconnected/i.test(message)) {
+        cachedBrowser = undefined;
+      }
+    }
     return {
-      backend: 'cloakbrowser', outcome: isSecurityPolicyError(error) ? 'policy_denied' : 'network_error', url,
+      backend: 'cloakbrowser',
+      outcome: isSecurityPolicyError(error) ? 'policy_denied' : 'network_error',
+      url,
       elapsedMs: Math.round(performance.now() - started),
       reason: error instanceof Error ? error.message : String(error),
     };
   } finally {
     if (context) await context.close().catch(() => undefined);
-    if (browser) await browser.close().catch(() => undefined);
   }
 }

@@ -26,12 +26,7 @@ const AUTH_PATTERNS = [
   /this content is for subscribers/i,
 ];
 
-const JS_PATTERNS = [
-  /enable javascript/i,
-  /javascript is required/i,
-  /please turn javascript on/i,
-  /you need to enable javascript/i,
-];
+const JS_PATTERNS = [/enable javascript/i, /javascript is required/i, /please turn javascript on/i, /you need to enable javascript/i];
 
 export interface ClassificationInput {
   status?: number;
@@ -68,9 +63,12 @@ export function classify(input: ClassificationInput): { outcome: FetchOutcome; r
   }
   if (JS_PATTERNS.some((pattern) => pattern.test(text))) {
     const textWithoutJsNotice = JS_PATTERNS.reduce(
-      (value, pattern) => value.replace(new RegExp(pattern.source, `${pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`}`), ' '),
+      (value, pattern) =>
+        value.replace(new RegExp(pattern.source, `${pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`}`), ' '),
       text,
-    ).replace(/\s+/g, ' ').trim();
+    )
+      .replace(/\s+/g, ' ')
+      .trim();
 
     // Browser-rendered pages sometimes leave their no-JS placeholder in the DOM
     // after real content has loaded. Treat that as success when substantial
@@ -80,10 +78,17 @@ export function classify(input: ClassificationInput): { outcome: FetchOutcome; r
     }
   }
   if (status !== undefined && status >= 400) {
-    if ([403, 406, 418, 503].includes(status)) return { outcome: 'antibot_challenge', reason: `Potential browser challenge: HTTP ${status}` };
+    if ([403, 406, 418, 503].includes(status))
+      return { outcome: 'antibot_challenge', reason: `Potential browser challenge: HTTP ${status}` };
     return { outcome: 'network_error', reason: `HTTP ${status}` };
   }
-  if (contentType && !contentType.includes('text/') && !contentType.includes('html') && !contentType.includes('json') && !contentType.includes('xml')) {
+  if (
+    contentType &&
+    !contentType.includes('text/') &&
+    !contentType.includes('html') &&
+    !contentType.includes('json') &&
+    !contentType.includes('xml')
+  ) {
     return { outcome: 'unsupported_content_type', reason: `Unsupported content type: ${contentType}` };
   }
   if (text.length < 80) return { outcome: 'empty_content', reason: 'Page returned too little readable content' };

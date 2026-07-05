@@ -5,9 +5,20 @@ import type { SearchAttempt, SearchOptions, SearchResult, SearchResponse } from 
 
 function allowedByDomain(url: URL, options: SearchOptions): boolean {
   const host = url.hostname.toLowerCase();
-  if (options.includeDomains?.length && !options.includeDomains.some((domain) => host === domain || host.endsWith(`.${domain}`))) return false;
+  if (options.includeDomains?.length && !options.includeDomains.some((domain) => host === domain || host.endsWith(`.${domain}`)))
+    return false;
   if (options.excludeDomains?.some((domain) => host === domain || host.endsWith(`.${domain}`))) return false;
   return true;
+}
+
+const ALLOWED_CATEGORIES = new Set(['general', 'images', 'videos', 'news', 'map', 'music', 'it', 'science', 'files', 'social media']);
+
+function sanitizeCategories(categories: string[] | undefined): string[] | undefined {
+  if (!categories?.length) return undefined;
+  const filtered = categories
+    .map((category) => category.trim().toLowerCase())
+    .filter((category) => category && ALLOWED_CATEGORIES.has(category));
+  return filtered.length ? filtered : undefined;
 }
 
 export async function searchSearxng(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
@@ -18,9 +29,9 @@ export async function searchSearxng(query: string, options: SearchOptions = {}):
     endpoint.searchParams.set('q', query);
     endpoint.searchParams.set('format', 'json');
     endpoint.searchParams.set('language', options.language ?? 'en');
-    if (options.categories?.length) endpoint.searchParams.set('categories', options.categories.join(','));
+    const categories = sanitizeCategories(options.categories);
+    if (categories?.length) endpoint.searchParams.set('categories', categories.join(','));
     if (options.timeRange) endpoint.searchParams.set('time_range', options.timeRange);
-
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.directTimeoutMs);
     let response: Response;
@@ -64,7 +75,9 @@ export async function searchSearxng(query: string, options: SearchOptions = {}):
     return { status: 'success', query, results, attempts };
   } catch (error) {
     attempts.push({
-      backend: 'searxng', outcome: 'failed', elapsedMs: Math.round(performance.now() - started),
+      backend: 'searxng',
+      outcome: 'failed',
+      elapsedMs: Math.round(performance.now() - started),
       reason: error instanceof Error ? error.message : String(error),
     });
     return { status: 'failed', query, results: [], attempts };

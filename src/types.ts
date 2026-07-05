@@ -27,6 +27,7 @@ export interface FetchAttempt {
   content?: string;
   links?: LinkResult[];
   contentType?: string;
+  headers?: Record<string, string>;
   httpStatus?: number;
   elapsedMs: number;
   reason?: string;
