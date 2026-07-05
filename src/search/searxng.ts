@@ -25,7 +25,14 @@ export async function searchSearxng(query: string, options: SearchOptions = {}):
     const timer = setTimeout(() => controller.abort(), config.directTimeoutMs);
     let response: Response;
     try {
-      response = await fetch(endpoint, { signal: controller.signal, headers: { Accept: 'application/json' } });
+      response = await fetch(endpoint, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'X-Forwarded-For': '127.0.0.1',
+          'X-Real-IP': '127.0.0.1',
+        },
+      });
     } finally {
       clearTimeout(timer);
     }

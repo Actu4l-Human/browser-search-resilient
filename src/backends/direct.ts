@@ -1,12 +1,34 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
 import type { IncomingHttpHeaders, IncomingMessage } from 'node:http';
+import type { LookupFunction } from 'node:net';
 import { performance } from 'node:perf_hooks';
 import { classify } from '../classifier.js';
 import { config } from '../config.js';
 import { isSecurityPolicyError, resolvePublicUrl, type ResolvedAddress } from '../security/url.js';
 import type { FetchAttempt } from '../types.js';
 import { extractLinks, extractTitle, htmlToText, truncate } from '../util/text.js';
+
+export function createPinnedLookup(addresses: ResolvedAddress[]): LookupFunction {
+  return (_hostname, options, callback): void => {
+    if (options.all === true) {
+      callback(null, addresses.map(({ address, family }) => ({ address, family })));
+      return;
+    }
+
+    const requestedFamily = options.family;
+    const selected = requestedFamily === 4 || requestedFamily === 6
+      ? addresses.find((candidate) => candidate.family === requestedFamily)
+      : addresses[0];
+
+    if (!selected) {
+      callback(new Error(requestedFamily ? `No validated IPv${requestedFamily} address available` : 'No validated DNS address available'), []);
+      return;
+    }
+
+    callback(null, selected.address, selected.family);
+  };
+}
 
 interface RawResponse {
   status: number;
@@ -35,7 +57,7 @@ function requestOnce(url: URL, addresses: ResolvedAddress[], timeoutMs: number, 
           Host: url.host,
           Connection: 'close',
         },
-        lookup: (_hostname: string, _options: unknown, callback: (error: Error | null, address: string, family: number) => void) => callback(null, selected.address, selected.family),
+        lookup: createPinnedLookup(addresses),
         servername: url.hostname.replace(/^\[|\]$/g, ''),
       },
       (response: IncomingMessage) => {

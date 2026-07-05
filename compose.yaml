@@ -82,7 +82,7 @@ services:
       - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
       - searxng-cache:/var/cache/searxng
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8080/' >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget --header='X-Forwarded-For: 127.0.0.1' --header='X-Real-IP: 127.0.0.1' -qO- 'http://127.0.0.1:8080/' >/dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
