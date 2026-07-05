@@ -37,6 +37,8 @@ export async function fetchCloakBrowser(url: string, maxCharacters: number, incl
       ...(config.cloakProxy ? { proxy: config.cloakProxy } : {}),
       ...(config.cloakGeoIp ? { geoip: true } : {}),
       ...(config.cloakLicenseKey ? { licenseKey: config.cloakLicenseKey } : {}),
+      ...(config.cloakTimezone ? { timezone: config.cloakTimezone } : {}),
+      ...(config.cloakLocale ? { locale: config.cloakLocale } : {}),
     });
     context = await browser.newContext();
 

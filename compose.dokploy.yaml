@@ -16,6 +16,7 @@ services:
         condition: service_healthy
 
     environment:
+      DISPLAY: ":99"
       HOST: 0.0.0.0
       PORT: 8088
 
@@ -41,6 +42,19 @@ services:
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
       RESEARCH_CONCURRENCY: ${RESEARCH_CONCURRENCY:-4}
       MAX_RESPONSE_BYTES: ${MAX_RESPONSE_BYTES:-5000000}
+    
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        rm -f /tmp/.X99-lock
+        Xvfb :99 \
+          -screen 0 1920x1080x24 \
+          -ac \
+          -nolisten tcp \
+          >/tmp/xvfb.log 2>&1 &
+        sleep 1
+        exec node dist/http.js
 
     expose:
       - "8088"

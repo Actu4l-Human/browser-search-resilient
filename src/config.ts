@@ -36,6 +36,8 @@ export const config = {
   cloakGeoIp: boolEnv('CLOAK_GEOIP', false),
   cloakHeadless: boolEnv('CLOAK_HEADLESS', true),
   cloakHumanize: boolEnv('CLOAK_HUMANIZE', true),
+  cloakTimezone: process.env.CLOAK_TIMEZONE ?? '',
+  cloakLocale: process.env.CLOAK_LOCALE ?? '',
 
   directTimeoutMs: numberEnv('DIRECT_TIMEOUT_MS', 20_000),
   browserTimeoutMs: numberEnv('BROWSER_TIMEOUT_MS', 45_000),
