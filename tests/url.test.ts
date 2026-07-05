@@ -10,3 +10,4 @@ test('allows a public address', () => assert.equal(isBlockedAddress('1.1.1.1'), 
 test('rejects localhost URL', () => assert.throws(() => parsePublicUrl('http://localhost/admin'), /Blocked/));
 test('rejects URL credentials', () => assert.throws(() => parsePublicUrl('https://user:pass@example.com'), /Credentials/));
 test('accepts normal public URL syntax', () => assert.equal(parsePublicUrl('https://example.com/path').hostname, 'example.com'));
+test('rejects IPv6 loopback URL', () => assert.throws(() => parsePublicUrl('http://[::1]/admin'), /Blocked/));

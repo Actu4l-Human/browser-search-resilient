@@ -24,7 +24,7 @@ function requestOnce(url: URL, addresses: ResolvedAddress[], timeoutMs: number, 
     const request = transport.request(
       {
         protocol: url.protocol,
-        hostname: url.hostname,
+        hostname: url.hostname.replace(/^\[|\]$/g, ''),
         port: url.port || undefined,
         path: `${url.pathname}${url.search}`,
         method: 'GET',
@@ -36,7 +36,7 @@ function requestOnce(url: URL, addresses: ResolvedAddress[], timeoutMs: number, 
           Connection: 'close',
         },
         lookup: (_hostname: string, _options: unknown, callback: (error: Error | null, address: string, family: number) => void) => callback(null, selected.address, selected.family),
-        servername: url.hostname,
+        servername: url.hostname.replace(/^\[|\]$/g, ''),
       },
       (response: IncomingMessage) => {
         const chunks: Buffer[] = [];

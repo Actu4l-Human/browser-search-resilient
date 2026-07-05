@@ -15,23 +15,26 @@ Unlike the upstream skill-only workflow, fallback decisions happen in code. Ever
 - Blocks loopback, RFC1918, link-local, CGNAT, test, multicast, local IPv6, metadata hostnames, and internal TLDs.
 - Direct HTTP pins each request to a DNS address that was validated before connection and revalidates every redirect.
 - CloakBrowser intercepts browser requests and blocks destinations that resolve to internal addresses.
+- Camofox has no direct internet network: all of its browser traffic is forced through a DNS-pinning egress proxy that rejects private and metadata destinations.
 - No arbitrary JavaScript, cookies, proxy values, credentials, or browser profile paths are accepted from MCP callers.
 - Authentication, subscriptions/paywalls, policy denial, and unresolved human verification are terminal outcomes.
-- Services publish only the orchestrator on `127.0.0.1` by default.
+- Services publish only the orchestrator on `127.0.0.1` by default; SearXNG, Camofox, and the filtering proxy remain private to Docker networks.
 
 ## Start locally
 
 ```bash
 cp .env.example .env
-# Set CAMOFOX_API_KEY to a random value:
-openssl rand -hex 32
+
+# Generate values, then paste them into .env:
+openssl rand -hex 32  # CAMOFOX_API_KEY (required)
+openssl rand -hex 32  # BROWSER_SEARCH_API_KEY (recommended)
 
 docker compose up -d --build
 docker compose ps
 ./scripts/smoke-test.sh
 ```
 
-The first start is large because Camofox and CloakBrowser download and cache their browser binaries in named volumes.
+The first build/start is large because Camofox and CloakBrowser download and cache browser binaries. Camofox is attached only to an internal Docker network and reaches public sites through the included `egress-proxy` service.
 
 Endpoints:
 

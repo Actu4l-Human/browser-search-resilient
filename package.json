@@ -14,7 +14,8 @@
     "start:stdio": "node dist/stdio.js",
     "dev": "tsx src/http.ts",
     "test": "tsx --test tests/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start:egress-proxy": "node dist/egress-proxy.js"
   },
   "dependencies": {
     "@modelcontextprotocol/fastify": "2.0.0-beta.2",

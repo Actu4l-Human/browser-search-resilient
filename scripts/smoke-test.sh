@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
-BASE_URL="${BASE_URL:-http://127.0.0.1:8088}"
+
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
+BASE_URL="${BASE_URL:-http://127.0.0.1:${BROWSER_SEARCH_PORT:-8088}}"
 AUTH=()
 if [[ -n "${BROWSER_SEARCH_API_KEY:-}" ]]; then
   AUTH=(-H "Authorization: Bearer ${BROWSER_SEARCH_API_KEY}")
 fi
+
 curl -fsS "$BASE_URL/healthz" | grep -q 'ok'
 curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
   -d '{"query":"Model Context Protocol","maxResults":3}' "$BASE_URL/v1/search"
