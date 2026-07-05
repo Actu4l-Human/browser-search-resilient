@@ -30,3 +30,10 @@ test('drain resolves once registered tasks settle', async () => {
   await Promise.all([p, drainPromise]);
   assert.equal(inFlight.size, 0);
 });
+
+test('registry removes rejected promises without creating a secondary rejection', async () => {
+  const rejection = inFlight.register(Promise.reject(new Error('expected failure')));
+  await assert.rejects(rejection, /expected failure/);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(inFlight.size, 0);
+});

@@ -47,16 +47,17 @@ RUN apt-get update \
         python3-minimal \
     && rm -rf /var/lib/apt/lists/*
 
-# Install the pinned Camofox Browser server package.
-#
-# Its postinstall script downloads the matching Camoufox browser binary into
-# /root/.cache/camoufox.
+# Install the complete Camofox runtime from a lockfile. The lock pins the
+# server package and the Camoufox/Playwright versions that the compatibility
+# patch below was validated against.
+WORKDIR /opt/camofox
+COPY docker/camofox/package.json docker/camofox/package-lock.json ./
 RUN npm config set registry https://registry.npmjs.org/ \
-    && npm install \
-        --global \
-        --no-audit \
-        --no-fund \
-        "@askjo/camofox-browser@${CAMOFOX_VERSION}" \
+    && npm ci --omit=dev --no-audit --no-fund \
+    && test "$(node -p "require('./node_modules/@askjo/camofox-browser/package.json').version")" = "${CAMOFOX_VERSION}" \
+    && mkdir -p /usr/local/lib/node_modules/@askjo \
+    && ln -s /opt/camofox/node_modules/@askjo/camofox-browser /usr/local/lib/node_modules/@askjo/camofox-browser \
+    && ln -s /opt/camofox/node_modules/@askjo/camofox-browser/bin/camofox-browser.js /usr/local/bin/camofox-browser \
     && npm cache clean --force
 
 # Fail the image build if the package postinstall did not successfully fetch
@@ -69,7 +70,9 @@ RUN set -eux; \
 # patch below must never modify Playwright internals.
 RUN set -eux; \
     CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
-    PLAYWRIGHT_FILE="${CAMOFOX_DIR}/node_modules/playwright-core/lib/coreBundle.js"; \
+    CAMOFOX_REAL_DIR="$(readlink -f "${CAMOFOX_DIR}")"; \
+    PLAYWRIGHT_PACKAGE="$(node -p "require.resolve('playwright-core/package.json', { paths: ['${CAMOFOX_REAL_DIR}'] })")"; \
+    PLAYWRIGHT_FILE="$(dirname "${PLAYWRIGHT_PACKAGE}")/lib/coreBundle.js"; \
     test -f "${PLAYWRIGHT_FILE}"; \
     sha256sum "${PLAYWRIGHT_FILE}" > /tmp/playwright-core.sha256
 

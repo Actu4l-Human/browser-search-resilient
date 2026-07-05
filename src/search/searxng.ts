@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import { parsePublicUrl } from '../security/url.js';
 import type { SearchAttempt, SearchOptions, SearchResult, SearchResponse } from '../types.js';
 
-function allowedByDomain(url: URL, options: SearchOptions): boolean {
+export function allowedByDomain(url: URL, options: SearchOptions): boolean {
   const host = url.hostname.toLowerCase();
   if (options.includeDomains?.length && !options.includeDomains.some((domain) => host === domain || host.endsWith(`.${domain}`)))
     return false;

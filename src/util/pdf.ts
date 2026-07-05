@@ -2,7 +2,7 @@ import { extractText } from 'unpdf';
 
 export async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
-    const { text } = await extractText(buffer, { mergePages: true });
+    const { text } = await extractText(Uint8Array.from(buffer), { mergePages: true });
     return text;
   } catch {
     return '';

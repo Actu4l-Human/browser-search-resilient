@@ -15,6 +15,10 @@ for (const address of [
   'fec0::1',
   '2001:db8::1',
   '::ffff:127.0.0.1',
+  '::ffff:7f00:1',
+  '::ffff:a00:1',
+  '::7f00:1',
+  '64:ff9b::7f00:1',
   '100::',
   '64:ff9b:1::1',
   'fc00::1',
@@ -32,12 +36,27 @@ test('allows public ipv4 and ipv6', () => {
   assert.equal(isBlockedAddress('1.1.1.1'), false);
   assert.equal(isBlockedAddress('2606:4700:4700::1111'), false);
   assert.equal(isBlockedAddress('::ffff:8.8.8.8'), false);
+  assert.equal(isBlockedAddress('::808:808'), false);
+  assert.equal(isBlockedAddress('64:ff9b::808:808'), false);
 });
 
 test('rejects localhost URL', () => assert.throws(() => parsePublicUrl('http://localhost/admin'), /Blocked/));
 test('rejects URL credentials', () => assert.throws(() => parsePublicUrl('https://user:pass@example.com'), /Credentials/));
 test('accepts normal public URL syntax', () => assert.equal(parsePublicUrl('https://example.com/path').hostname, 'example.com'));
 test('rejects IPv6 loopback URL', () => assert.throws(() => parsePublicUrl('http://[::1]/admin'), /Blocked/));
+
+test('rejects canonical IPv4-embedded IPv6 URL forms', () => {
+  for (const url of ['http://[::ffff:7f00:1]/', 'http://[::ffff:a00:1]/', 'http://[::7f00:1]/', 'http://[64:ff9b::7f00:1]/']) {
+    assert.throws(() => parsePublicUrl(url), /Blocked/);
+  }
+});
+
+test('rejects non-canonical IPv4 loopback URL forms', () => {
+  for (const url of ['http://127.1/', 'http://0x7f000001/', 'http://0177.0.0.1/', 'http://2130706433/']) {
+    assert.throws(() => parsePublicUrl(url), /Blocked/);
+  }
+});
+
 test('rejects cloud metadata hostnames', () => {
   assert.throws(() => parsePublicUrl('http://metadata.google.internal/computeMetadata/v1'), /Blocked/);
   assert.throws(() => parsePublicUrl('http://instance-data.ec2.internal/latest/meta-data'), /Blocked/);

@@ -18,10 +18,40 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - run: npm run test:coverage
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --prefix docker/camofox --omit=dev --audit-level=high
+      - name: Verify publish contents
+        run: npm pack --dry-run
+      - name: Reject tracked secret files
+        run: |
+          if git ls-files | grep -Eq '(^|/)\.env$'; then
+            echo 'A .env file is tracked by Git.' >&2
+            exit 1
+          fi
+      - name: Verify clean source archive
+        run: |
+          npm run package:source -- /tmp/browser-search-resilient-source.zip
+          if unzip -Z1 /tmp/browser-search-resilient-source.zip | grep -Eq '(^|/)(\.env|node_modules|dist|\.git)(/|$)'; then
+            echo 'Source archive contains excluded files.' >&2
+            exit 1
+          fi
 
   docker:
     runs-on: ubuntu-latest
+    env:
+      CAMOFOX_API_KEY: ci-placeholder-camofox-key
+      BROWSER_SEARCH_API_KEY: ci-placeholder-browser-search-key
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Compose manifests
+        run: |
+          docker compose -f compose.yaml config >/dev/null
+          docker compose -f compose.dokploy.yaml config >/dev/null
       - name: Build orchestrator image
         run: docker build -f Dockerfile -t rbs-ci:local .
+      - name: Build SearXNG image
+        run: docker build -f Dockerfile.searxng -t rbs-searxng-ci:local .
+      - name: Build patched Camofox image
+        run: docker build -f Dockerfile.camofox --build-arg CAMOFOX_VERSION=1.11.2 -t rbs-camofox-ci:local .

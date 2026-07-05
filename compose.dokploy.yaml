@@ -8,11 +8,14 @@ services:
     image: actualhuman/resilient-browser-search:dokploy
     restart: unless-stopped
     init: true
+    stop_grace_period: 30s
 
     depends_on:
       searxng:
         condition: service_healthy
       camofox:
+        condition: service_healthy
+      egress-proxy:
         condition: service_healthy
 
     environment:
@@ -27,14 +30,17 @@ services:
       BROWSER_SEARCH_API_KEY: ${BROWSER_SEARCH_API_KEY:?Set BROWSER_SEARCH_API_KEY}
       SEARXNG_URL: http://searxng:8080
       CAMOFOX_URL: http://camofox:9377
+      EGRESS_PROXY_URL: http://egress-proxy:3128
       CAMOFOX_API_KEY: ${CAMOFOX_API_KEY:?Set CAMOFOX_API_KEY}
 
       CLOAK_ENABLED: ${CLOAK_ENABLED:-true}
       CLOAKBROWSER_LICENSE_KEY: ${CLOAKBROWSER_LICENSE_KEY:-}
-      CLOAK_PROXY: ${CLOAK_PROXY:-}
+      CLOAK_PROXY: ${CLOAK_PROXY:-http://egress-proxy:3128}
       CLOAK_GEOIP: ${CLOAK_GEOIP:-false}
-      CLOAK_HEADLESS: ${CLOAK_HEADLESS:-true}
+      CLOAK_HEADLESS: ${CLOAK_HEADLESS:-false}
       CLOAK_HUMANIZE: ${CLOAK_HUMANIZE:-true}
+      CLOAK_TIMEZONE: ${CLOAK_TIMEZONE:-America/Los_Angeles}
+      CLOAK_LOCALE: ${CLOAK_LOCALE:-en-US}
 
       DIRECT_TIMEOUT_MS: ${DIRECT_TIMEOUT_MS:-20000}
       BROWSER_TIMEOUT_MS: ${BROWSER_TIMEOUT_MS:-45000}
@@ -43,19 +49,6 @@ services:
       RESEARCH_CONCURRENCY: ${RESEARCH_CONCURRENCY:-4}
       MAX_RESPONSE_BYTES: ${MAX_RESPONSE_BYTES:-5000000}
     
-    command:
-      - /bin/sh
-      - -ec
-      - |
-        rm -f /tmp/.X99-lock
-        Xvfb :99 \
-          -screen 0 1920x1080x24 \
-          -ac \
-          -nolisten tcp \
-          >/tmp/xvfb.log 2>&1 &
-        sleep 1
-        exec node dist/http.js
-
     expose:
       - "8088"
 
@@ -180,7 +173,6 @@ services:
       PROXY_PORT: 3128
 
     volumes:
-      - camofox-cache:/root/.cache/camoufox
       - camofox-data:/root/.camofox
 
     shm_size: 1gb
@@ -223,6 +215,5 @@ networks:
 volumes:
   browser-profiles:
   cloak-cache:
-  camofox-cache:
   camofox-data:
   searxng-cache:

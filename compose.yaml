@@ -14,6 +14,8 @@ services:
         condition: service_healthy
       camofox:
         condition: service_healthy
+      egress-proxy:
+        condition: service_healthy
     environment:
       HOST: 0.0.0.0
       PORT: 8088
@@ -22,12 +24,19 @@ services:
       BROWSER_SEARCH_API_KEY: ${BROWSER_SEARCH_API_KEY:-}
       SEARXNG_URL: http://searxng:8080
       CAMOFOX_URL: http://camofox:9377
+      EGRESS_PROXY_URL: http://egress-proxy:3128
       CAMOFOX_API_KEY: ${CAMOFOX_API_KEY:?Set CAMOFOX_API_KEY in .env}
       CLOAK_ENABLED: ${CLOAK_ENABLED:-true}
       CLOAKBROWSER_LICENSE_KEY: ${CLOAKBROWSER_LICENSE_KEY:-}
-      CLOAK_PROXY: ${CLOAK_PROXY:-}
+      CLOAK_PROXY: ${CLOAK_PROXY:-http://egress-proxy:3128}
       CLOAK_GEOIP: ${CLOAK_GEOIP:-false}
-      CLOAK_HEADLESS: ${CLOAK_HEADLESS:-true}
+      CLOAK_HEADLESS: ${CLOAK_HEADLESS:-false}
+      CLOAK_HUMANIZE: ${CLOAK_HUMANIZE:-true}
+      CLOAK_TIMEZONE: ${CLOAK_TIMEZONE:-America/Los_Angeles}
+      CLOAK_LOCALE: ${CLOAK_LOCALE:-en-US}
+      DIRECT_TIMEOUT_MS: ${DIRECT_TIMEOUT_MS:-20000}
+      BROWSER_TIMEOUT_MS: ${BROWSER_TIMEOUT_MS:-45000}
+      CHALLENGE_WAIT_MS: ${CHALLENGE_WAIT_MS:-20000}
       BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
       RESEARCH_CONCURRENCY: ${RESEARCH_CONCURRENCY:-4}
       MAX_RESPONSE_BYTES: ${MAX_RESPONSE_BYTES:-5000000}
@@ -80,7 +89,10 @@ services:
       - internet
 
   searxng:
-    image: searxng/searxng:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.searxng
+    image: actualhuman/browser-search-searxng:local
     restart: unless-stopped
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
@@ -119,7 +131,6 @@ services:
       PROXY_HOST: egress-proxy
       PROXY_PORT: 3128
     volumes:
-      - camofox-cache:/root/.cache/camoufox
       - camofox-data:/root/.camofox
     shm_size: 1gb
     healthcheck:
@@ -149,6 +160,5 @@ networks:
 volumes:
   browser-profiles:
   cloak-cache:
-  camofox-cache:
   camofox-data:
   searxng-cache:

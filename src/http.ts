@@ -18,6 +18,7 @@ const app: FastifyInstance = createMcpFastifyApp({
 });
 
 const rateLimiter = new RateLimiter(config.rateLimitRpm, config.rateLimitBurst);
+let shuttingDown = false;
 
 function clientKey(request: FastifyRequest): string {
   return request.ip ?? 'unknown';
@@ -25,10 +26,12 @@ function clientKey(request: FastifyRequest): string {
 
 app.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
   if (request.url === '/healthz' || request.url === '/readyz' || request.url === '/metrics') return;
+  if (shuttingDown) return reply.code(503).send({ error: 'Service is shutting down' });
   if (!checkBearer(request.headers.authorization, config.apiKey)) {
     return reply.code(401).send({ error: 'Unauthorized' });
   }
   if (rateLimiter.enabled && !rateLimiter.consume(clientKey(request))) {
+    metrics.recordRateLimitRejection();
     return reply.code(429).send({ error: 'Rate limit exceeded' });
   }
 });
@@ -50,7 +53,7 @@ app.get('/metrics', async (_request: FastifyRequest, reply: FastifyReply) => {
 });
 app.get('/readyz', async (_request: FastifyRequest, reply: FastifyReply) => {
   const state = await health(false);
-  const ready = state.searxng === 'ok' && state.camofox === 'ok';
+  const ready = state.searxng === 'ok' && state.camofox === 'ok' && state.egressProxy === 'ok';
   return reply.code(ready ? 200 : 503).send(state);
 });
 
@@ -93,15 +96,24 @@ app.all('/mcp', (request: FastifyRequest, reply: FastifyReply) => nodeHandler(re
 await app.listen({ host: config.host, port: config.port });
 log.info('HTTP server listening', { host: config.host, port: config.port, auth: Boolean(config.apiKey), rateLimit: rateLimiter.enabled });
 
-let shuttingDown = false;
 const shutdown = async (signal: string): Promise<void> => {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info('Shutting down', { signal, inFlight: inFlight.size });
-  await Promise.race([inFlight.drain(10_000), new Promise((resolve) => setTimeout(resolve, 10_000))]);
+
+  // Stop accepting new connections before draining tracked work. Existing
+  // keep-alive requests are rejected by the preHandler shutdown guard.
+  app.server.close();
+  app.server.closeIdleConnections?.();
+
+  await inFlight.drain(15_000);
   await closeCloakBrowser();
   await mcpHandler.close();
-  await app.close();
+  await app.close().catch((error: unknown) => {
+    log.warn('Fastify close returned an error during shutdown', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
   process.exit(0);
 };
 process.on('SIGINT', () => void shutdown('SIGINT'));

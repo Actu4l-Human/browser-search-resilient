@@ -39,6 +39,11 @@ function ipv4ToInt(ip: string): number {
   return (((parts[0]! << 24) >>> 0) + (parts[1]! << 16) + (parts[2]! << 8) + parts[3]!) >>> 0;
 }
 
+function intToIpv4(value: number): string {
+  const normalized = value >>> 0;
+  return [normalized >>> 24, (normalized >>> 16) & 0xff, (normalized >>> 8) & 0xff, normalized & 0xff].join('.');
+}
+
 function inCidr4(ip: string, network: string, prefix: number): boolean {
   const ipInt = ipv4ToInt(ip);
   const networkInt = ipv4ToInt(network);
@@ -124,6 +129,23 @@ const BLOCKED_V6: Array<[string, number]> = [
   ['ff00::', 8],
 ];
 
+const EMBEDDED_V4_PREFIXES: Array<[string, number]> = [
+  ['::', 96],
+  ['::ffff:0:0', 96],
+  ['::ffff:0:0:0', 96],
+  ['64:ff9b::', 96],
+];
+
+function embeddedIpv4(address: string): string | undefined {
+  try {
+    if (!EMBEDDED_V4_PREFIXES.some(([network, prefix]) => inCidr6(address, network, prefix))) return undefined;
+    const value = Number(ipv6ToBigInt(address) & 0xffffffffn);
+    return intToIpv4(value);
+  } catch {
+    return undefined;
+  }
+}
+
 export function isBlockedAddress(address: string): boolean {
   const normalized = address.toLowerCase().split('%')[0] ?? address.toLowerCase();
   const family = isIP(normalized);
@@ -137,9 +159,8 @@ export function isBlockedAddress(address: string): boolean {
       }
     });
     if (v6Blocked) return true;
-    const embeddedV4 = normalized.match(/:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-    if (embeddedV4) return isBlockedAddress(embeddedV4[1]!);
-    return false;
+    const v4 = embeddedIpv4(normalized);
+    return v4 ? isBlockedAddress(v4) : false;
   }
   return true;
 }

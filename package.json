@@ -1,6 +1,6 @@
 {
   "name": "@actual-human/resilient-browser-search",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "description": "Deterministic MCP web search and retrieval with SearXNG, direct HTTP, Camofox, and CloakBrowser fallbacks.",
   "type": "module",
@@ -11,7 +11,9 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -22,7 +24,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "lint": "eslint . && prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"*.{json,mjs}\"",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"*.{json,mjs}\"",
-    "start:egress-proxy": "node dist/egress-proxy.js"
+    "start:egress-proxy": "node dist/egress-proxy.js",
+    "prepublishOnly": "npm run build",
+    "package:source": "scripts/package-source.sh",
+    "test:coverage": "npm run typecheck && node --import tsx --test --experimental-test-coverage --test-coverage-lines=70 --test-coverage-functions=70 --test-coverage-branches=70 tests/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/fastify": "2.0.0-beta.2",
@@ -34,7 +39,7 @@
     "parse5": "^7.3.0",
     "playwright-core": "1.61.0",
     "socks-proxy-agent": "10.0.0",
-    "unpdf": "^0.12.2",
+    "unpdf": "1.6.2",
     "zod": "4.4.3"
   },
   "devDependencies": {

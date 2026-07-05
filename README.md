@@ -14,7 +14,7 @@ Unlike the upstream skill-only workflow, fallback decisions happen in code. Ever
 - Public `http` and `https` URLs only.
 - Blocks loopback, RFC1918, link-local, CGNAT, test, multicast, local IPv6, metadata hostnames, and internal TLDs.
 - Direct HTTP pins each request to a DNS address that was validated before connection and revalidates every redirect.
-- CloakBrowser intercepts browser requests and blocks destinations that resolve to internal addresses.
+- CloakBrowser uses the same DNS-pinning egress proxy as Camofox and also intercepts browser requests as defense in depth.
 - Camofox has no direct internet network: all of its browser traffic is forced through a DNS-pinning egress proxy that rejects private and metadata destinations.
 - No arbitrary JavaScript, cookies, proxy values, credentials, or browser profile paths are accepted from MCP callers.
 - Authentication, subscriptions/paywalls, policy denial, and unresolved human verification are terminal outcomes.
@@ -27,14 +27,14 @@ cp .env.example .env
 
 # Generate values, then paste them into .env:
 openssl rand -hex 32  # CAMOFOX_API_KEY (required)
-openssl rand -hex 32  # BROWSER_SEARCH_API_KEY (recommended)
+openssl rand -hex 32  # BROWSER_SEARCH_API_KEY (required for network deployments)
 
 docker compose up -d --build
 docker compose ps
 ./scripts/smoke-test.sh
 ```
 
-The first build/start is large because Camofox and CloakBrowser download and cache browser binaries. Camofox is attached only to an internal Docker network and reaches public sites through the included `egress-proxy` service.
+The first build/start is large because the browser images include their runtime binaries. Camofox is attached only to an internal Docker network, and both browser backends use the included DNS-pinning `egress-proxy` while still exiting through the host residential connection.
 
 Endpoints:
 
@@ -73,14 +73,24 @@ See `docs/clients.md` for Kilo, OpenCode, and Pydantic Deep configuration.
 
 ## Operational notes
 
-- Configure proxies only with `CLOAK_PROXY` on the server. Do not expose proxy selection to agents.
+- `CLOAK_PROXY` defaults to the internal `egress-proxy`; do not expose proxy selection to agents. Keep `CLOAK_GEOIP=false` for this local filtering proxy.
 - A CloakBrowser Pro key is optional; set `CLOAKBROWSER_LICENSE_KEY` to use the current Pro binary.
 - `Camofox` crash telemetry is disabled by the supplied Compose configuration.
 - SearXNG is an unmodified sidecar. Review and tune its engines for your network and acceptable-use requirements.
 - The orchestrator binds to `127.0.0.1` by default; the Compose override publishes it on the host loopback. Set `HOST` explicitly and always set `BROWSER_SEARCH_API_KEY` when binding a non-loopback address.
-- Optional features, all off by default: response caching (`CACHE_ENABLED`), per-client rate limiting (`RATE_LIMIT_RPM` / `RATE_LIMIT_BURST`), and robots.txt enforcement (`ROBOTS_ENABLED`).
+- Optional features, all off by default: response caching (`CACHE_ENABLED`), per-peer rate limiting (`RATE_LIMIT_RPM` / `RATE_LIMIT_BURST`), and robots.txt enforcement (`ROBOTS_ENABLED`). Behind LiteLLM, multiple agents may share one peer address.
 - PDF responses (`application/pdf`) are extracted to text by the direct backend.
 - OpenMetrics are exposed at `/metrics`.
+
+## Create a safe source archive
+
+Do not zip the working directory directly because it may contain `.env`, `node_modules`, build output, and Git metadata. Use:
+
+```bash
+npm run package:source -- browser-search-resilient-source.zip
+```
+
+The command uses `git archive`, so only tracked source files are included.
 
 ## Upstream
 

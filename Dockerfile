@@ -23,7 +23,10 @@ WORKDIR /app
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-RUN mkdir -p /home/browser/.cloakbrowser /data/profiles && chown -R browser:browser /home/browser /data/profiles /app
+COPY scripts/start-browser-search.sh /usr/local/bin/start-browser-search
+RUN chmod 0755 /usr/local/bin/start-browser-search \
+    && mkdir -p /home/browser/.cloakbrowser /data/profiles \
+    && chown -R browser:browser /home/browser /data/profiles /app
 
 USER browser
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=8088 CLOAKBROWSER_CACHE_DIR=/home/browser/.cloakbrowser
@@ -31,4 +34,4 @@ EXPOSE 8088
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8088/healthz || exit 1
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/http.js"]
+CMD ["start-browser-search", "node", "dist/http.js"]

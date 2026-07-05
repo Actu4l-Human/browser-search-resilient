@@ -1,3 +1,5 @@
+import { performance } from 'node:perf_hooks';
+
 export class Semaphore {
   private available: number;
   private readonly waiters: Array<() => void> = [];
@@ -7,8 +9,10 @@ export class Semaphore {
     this.available = limit;
   }
 
-  async run<T>(operation: () => Promise<T>): Promise<T> {
+  async run<T>(operation: () => Promise<T>, onAcquired?: (waitMs: number) => void): Promise<T> {
+    const started = performance.now();
     await this.acquire();
+    onAcquired?.(performance.now() - started);
     try {
       return await operation();
     } finally {

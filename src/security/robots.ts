@@ -4,8 +4,14 @@ import { TtlCache } from '../util/cache.js';
 import { config } from '../config.js';
 import { resolvePublicUrl } from './url.js';
 
+export interface RobotsGroup {
+  userAgents: string[];
+  allow: string[];
+  disallow: string[];
+}
+
 interface RobotsRules {
-  rules: Array<{ userAgent: string; allow: string[]; disallow: string[] }>;
+  rules: RobotsGroup[];
 }
 
 const cache = new TtlCache<string, RobotsRules>(config.robotsCacheTtlMs, 64);
@@ -61,7 +67,11 @@ async function fetchRobots(origin: string): Promise<RobotsRules> {
     let currentDisallow: string[] = [];
     const flush = (): void => {
       if (currentUserAgents.length) {
-        rules.rules.push({ userAgent: currentUserAgents.join(',').toLowerCase(), allow: currentAllow, disallow: currentDisallow });
+        rules.rules.push({
+          userAgents: currentUserAgents.map((agent) => agent.toLowerCase()),
+          allow: currentAllow,
+          disallow: currentDisallow,
+        });
       }
       currentUserAgents = [];
       currentAllow = [];
@@ -99,36 +109,60 @@ export function pathMatches(pattern: string, path: string): boolean {
   return new RegExp(`^${regex}${hadDollar ? '$' : ''}`).test(path);
 }
 
+function userAgentSpecificity(group: RobotsGroup, userAgent: string): number {
+  let specificity = -1;
+  for (const rawAgent of group.userAgents) {
+    const agent = rawAgent.trim().toLowerCase();
+    const wildcard = agent === '' || agent === '*';
+    if (wildcard || userAgent.includes(agent)) specificity = Math.max(specificity, wildcard ? 0 : agent.length);
+  }
+  return specificity;
+}
+
+function ruleSpecificity(pattern: string): number {
+  return (pattern.endsWith('$') ? pattern.slice(0, -1) : pattern).replace(/\*/g, '').length;
+}
+
+export function isPathAllowed(groups: RobotsGroup[], userAgent: string, path: string): boolean {
+  const normalizedAgent = userAgent.toLowerCase();
+  let bestAgentSpecificity = -1;
+  const matchingGroups: RobotsGroup[] = [];
+
+  for (const group of groups) {
+    const specificity = userAgentSpecificity(group, normalizedAgent);
+    if (specificity < 0) continue;
+    if (specificity > bestAgentSpecificity) {
+      bestAgentSpecificity = specificity;
+      matchingGroups.length = 0;
+      matchingGroups.push(group);
+    } else if (specificity === bestAgentSpecificity) {
+      matchingGroups.push(group);
+    }
+  }
+
+  if (matchingGroups.length === 0) return true;
+
+  let decision: { allow: boolean; specificity: number } | undefined;
+  const consider = (pattern: string, allow: boolean): void => {
+    if (!pathMatches(pattern, path)) return;
+    const specificity = ruleSpecificity(pattern);
+    if (!decision || specificity > decision.specificity || (specificity === decision.specificity && allow)) {
+      decision = { allow, specificity };
+    }
+  };
+
+  for (const group of matchingGroups) {
+    for (const pattern of group.disallow) consider(pattern, false);
+    for (const pattern of group.allow) consider(pattern, true);
+  }
+
+  return decision?.allow ?? true;
+}
+
 export async function isAllowed(url: string): Promise<boolean> {
   if (!config.robotsEnabled) return true;
   const parsed = new URL(url);
   const robots = await fetchRobots(`${parsed.protocol}//${parsed.host}`);
   const path = `${parsed.pathname}${parsed.search}`;
-  const userAgentLower = config.userAgent.toLowerCase();
-  let best: { length: number; allow: string[]; disallow: string[] } | undefined;
-  for (const group of robots.rules) {
-    const agents = group.userAgent.split(',').map((a) => a.trim().toLowerCase());
-    let matchedSpecificity = -1;
-    for (const agent of agents) {
-      const isWildcard = agent === '' || agent === '*';
-      const matched = isWildcard || userAgentLower.includes(agent);
-      if (matched) {
-        matchedSpecificity = Math.max(matchedSpecificity, isWildcard ? 0 : agent.length);
-      }
-    }
-    if (matchedSpecificity >= 0) {
-      if (!best || matchedSpecificity > best.length) {
-        best = { length: matchedSpecificity, allow: group.allow, disallow: group.disallow };
-      }
-    }
-  }
-  if (!best) return true;
-  let allowed = true;
-  for (const pattern of best.disallow) {
-    if (pathMatches(pattern, path)) allowed = false;
-  }
-  for (const pattern of best.allow) {
-    if (pathMatches(pattern, path)) allowed = true;
-  }
-  return allowed;
+  return isPathAllowed(robots.rules, config.userAgent, path);
 }

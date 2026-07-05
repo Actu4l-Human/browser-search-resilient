@@ -3,6 +3,10 @@ export interface MetricsSnapshot {
   responsesByStatus: Record<string, number>;
   toolInvocations: Record<string, number>;
   backendOutcomes: Record<string, Record<string, number>>;
+  backendDurationMs: Record<string, { sum: number; count: number }>;
+  cacheEvents: Record<string, Record<string, number>>;
+  semaphoreWaitMs: Record<string, { sum: number; count: number }>;
+  rateLimitRejections: number;
   requestDurationMsSum: number;
   requestDurationMsCount: number;
 }
@@ -12,6 +16,10 @@ class MetricsCollector {
   private readonly responsesByStatus = new Map<string, number>();
   private readonly toolInvocations = new Map<string, number>();
   private readonly backendOutcomes = new Map<string, Map<string, number>>();
+  private readonly backendDurationMs = new Map<string, { sum: number; count: number }>();
+  private readonly cacheEvents = new Map<string, Map<string, number>>();
+  private readonly semaphoreWaitMs = new Map<string, { sum: number; count: number }>();
+  private rateLimitRejections = 0;
   private requestDurationMsSum = 0;
   private requestDurationMsCount = 0;
 
@@ -37,6 +45,33 @@ class MetricsCollector {
     inner.set(outcome, (inner.get(outcome) ?? 0) + 1);
   }
 
+  observeBackendDuration(backend: string, durationMs: number): void {
+    const current = this.backendDurationMs.get(backend) ?? { sum: 0, count: 0 };
+    current.sum += durationMs;
+    current.count += 1;
+    this.backendDurationMs.set(backend, current);
+  }
+
+  recordCache(kind: string, event: 'hit' | 'miss'): void {
+    let inner = this.cacheEvents.get(kind);
+    if (!inner) {
+      inner = new Map();
+      this.cacheEvents.set(kind, inner);
+    }
+    inner.set(event, (inner.get(event) ?? 0) + 1);
+  }
+
+  observeSemaphoreWait(pool: string, durationMs: number): void {
+    const current = this.semaphoreWaitMs.get(pool) ?? { sum: 0, count: 0 };
+    current.sum += durationMs;
+    current.count += 1;
+    this.semaphoreWaitMs.set(pool, current);
+  }
+
+  recordRateLimitRejection(): void {
+    this.rateLimitRejections += 1;
+  }
+
   observeDuration(durationMs: number): void {
     this.requestDurationMsSum += durationMs;
     this.requestDurationMsCount += 1;
@@ -44,14 +79,20 @@ class MetricsCollector {
 
   snapshot(): MetricsSnapshot {
     const backendOutcomes: Record<string, Record<string, number>> = {};
-    for (const [backend, inner] of this.backendOutcomes) {
-      backendOutcomes[backend] = Object.fromEntries(inner);
-    }
+    for (const [backend, inner] of this.backendOutcomes) backendOutcomes[backend] = Object.fromEntries(inner);
+    const backendDurationMs = Object.fromEntries(this.backendDurationMs);
+    const cacheEvents: Record<string, Record<string, number>> = {};
+    for (const [kind, inner] of this.cacheEvents) cacheEvents[kind] = Object.fromEntries(inner);
+    const semaphoreWaitMs = Object.fromEntries(this.semaphoreWaitMs);
     return {
       requestsTotal: this.requestsTotal,
       responsesByStatus: Object.fromEntries(this.responsesByStatus),
       toolInvocations: Object.fromEntries(this.toolInvocations),
       backendOutcomes,
+      backendDurationMs,
+      cacheEvents,
+      semaphoreWaitMs,
+      rateLimitRejections: this.rateLimitRejections,
       requestDurationMsSum: this.requestDurationMsSum,
       requestDurationMsCount: this.requestDurationMsCount,
     };
@@ -80,6 +121,28 @@ class MetricsCollector {
         lines.push(`rbs_backend_outcomes_total{backend="${backend}",outcome="${outcome}"} ${count}`);
       }
     }
+    lines.push('# HELP rbs_backend_duration_ms Backend execution duration in milliseconds.');
+    lines.push('# TYPE rbs_backend_duration_ms summary');
+    for (const [backend, duration] of Object.entries(s.backendDurationMs)) {
+      lines.push(`rbs_backend_duration_ms_sum{backend="${backend}"} ${duration.sum.toFixed(3)}`);
+      lines.push(`rbs_backend_duration_ms_count{backend="${backend}"} ${duration.count}`);
+    }
+    lines.push('# HELP rbs_cache_events_total Cache hits and misses.');
+    lines.push('# TYPE rbs_cache_events_total counter');
+    for (const [kind, events] of Object.entries(s.cacheEvents)) {
+      for (const [event, count] of Object.entries(events)) {
+        lines.push(`rbs_cache_events_total{kind="${kind}",event="${event}"} ${count}`);
+      }
+    }
+    lines.push('# HELP rbs_semaphore_wait_ms Semaphore wait time in milliseconds.');
+    lines.push('# TYPE rbs_semaphore_wait_ms summary');
+    for (const [pool, duration] of Object.entries(s.semaphoreWaitMs)) {
+      lines.push(`rbs_semaphore_wait_ms_sum{pool="${pool}"} ${duration.sum.toFixed(3)}`);
+      lines.push(`rbs_semaphore_wait_ms_count{pool="${pool}"} ${duration.count}`);
+    }
+    lines.push('# HELP rbs_rate_limit_rejections_total Requests rejected by the rate limiter.');
+    lines.push('# TYPE rbs_rate_limit_rejections_total counter');
+    lines.push(`rbs_rate_limit_rejections_total ${s.rateLimitRejections}`);
     const avg = s.requestDurationMsCount > 0 ? s.requestDurationMsSum / s.requestDurationMsCount : 0;
     lines.push('# HELP rbs_request_duration_ms_avg Average request duration in milliseconds.');
     lines.push('# TYPE rbs_request_duration_ms_avg gauge');
