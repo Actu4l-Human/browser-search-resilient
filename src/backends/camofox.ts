@@ -107,9 +107,11 @@ export async function fetchCamofox(url: string, maxCharacters: number, includeLi
     const limited = truncate(normalizeWhitespace(content), maxCharacters);
     const classification = classify({ title, content: limited.value, finalUrl });
     return {
-      backend: 'camofox', outcome: classification.outcome, reason: classification.reason,
-      challenge: classification.challenge, url, finalUrl, title, content: limited.value,
-      links: includeLinks ? links : undefined,
+      backend: 'camofox', outcome: classification.outcome,
+      ...(classification.reason ? { reason: classification.reason } : {}),
+      ...(classification.challenge ? { challenge: classification.challenge } : {}),
+      url, finalUrl, title, content: limited.value,
+      ...(includeLinks ? { links } : {}),
       elapsedMs: Math.round(performance.now() - started), truncated: limited.truncated,
     };
   } catch (error) {

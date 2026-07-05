@@ -23,7 +23,7 @@ export function createServer(): McpServer {
       includeDomains: z.array(z.string()).max(50).optional(),
       excludeDomains: z.array(z.string()).max(50).optional(),
     }),
-  }, async (input) => result(await webSearch(input.query, input)));
+  }, async (input: any) => result(await webSearch(input.query, input)));
 
   server.registerTool('web_fetch', {
     description: 'Retrieve a public URL. Auto mode uses direct HTTP first, Camofox for JavaScript or challenge pages, and CloakBrowser as the final fallback. Authentication, paywalls, policy denials, and unresolved human verification are not bypassed.',
@@ -33,7 +33,7 @@ export function createServer(): McpServer {
       maxCharacters: z.number().int().min(1000).max(200000).default(50000),
       includeLinks: z.boolean().default(true),
     }),
-  }, async (input) => result(await webFetch(input.url, input)));
+  }, async (input: any) => result(await webFetch(input.url, input)));
 
   server.registerTool('web_research', {
     description: 'Search, retrieve, and return multiple public sources with complete backend attempt history for source-grounded agent research.',
@@ -47,12 +47,12 @@ export function createServer(): McpServer {
       includeDomains: z.array(z.string()).max(50).optional(),
       excludeDomains: z.array(z.string()).max(50).optional(),
     }),
-  }, async (input) => result(await webResearch(input.query, input)));
+  }, async (input: any) => result(await webResearch(input.query, input)));
 
   server.registerTool('web_health', {
     description: 'Check the orchestrator and its SearXNG, Camofox, and CloakBrowser backends. Deep mode launches CloakBrowser against example.com.',
     inputSchema: z.object({ deep: z.boolean().default(false) }),
-  }, async ({ deep }) => result(await health(deep)));
+  }, async ({ deep }: { deep: boolean }) => result(await health(deep)));
 
   return server;
 }

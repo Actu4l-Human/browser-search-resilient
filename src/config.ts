@@ -14,7 +14,7 @@ function boolEnv(name: string, fallback: boolean): boolean {
 function csvEnv(name: string, fallback: string[]): string[] {
   const raw = process.env[name];
   if (!raw) return fallback;
-  return raw.split(',').map((item) => item.trim()).filter(Boolean);
+  return raw.split(',').map((item: string) => item.trim()).filter(Boolean);
 }
 
 export const config = {

@@ -84,12 +84,16 @@ export async function fetchCloakBrowser(url: string, maxCharacters: number, incl
       contentType: response?.headers?.()['content-type'],
       finalUrl: current.url,
     });
+    const status = response?.status?.();
+    const contentType = response?.headers?.()['content-type'];
     return {
       backend: 'cloakbrowser', outcome: classification.outcome,
-      reason: classification.reason, challenge: classification.challenge,
+      ...(classification.reason ? { reason: classification.reason } : {}),
+      ...(classification.challenge ? { challenge: classification.challenge } : {}),
       url, finalUrl: current.url, title: current.title, content: limited.value,
-      links: includeLinks ? current.links.filter((link) => /^https?:/i.test(link.url)) : undefined,
-      httpStatus: response?.status?.(), contentType: response?.headers?.()['content-type'],
+      ...(includeLinks ? { links: current.links.filter((link) => /^https?:/i.test(link.url)) } : {}),
+      ...(typeof status === 'number' ? { httpStatus: status } : {}),
+      ...(typeof contentType === 'string' ? { contentType } : {}),
       elapsedMs: Math.round(performance.now() - started), truncated: limited.truncated,
     };
   } catch (error) {

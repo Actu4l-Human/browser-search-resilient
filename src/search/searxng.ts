@@ -45,9 +45,9 @@ export async function searchSearxng(query: string, options: SearchOptions = {}):
           title: typeof item.title === 'string' ? item.title : url.hostname,
           url: url.toString(),
           snippet: typeof item.content === 'string' ? item.content : '',
-          engine: typeof item.engine === 'string' ? item.engine : undefined,
-          publishedDate: typeof item.publishedDate === 'string' ? item.publishedDate : undefined,
-          score: typeof item.score === 'number' ? item.score : undefined,
+          ...(typeof item.engine === 'string' ? { engine: item.engine } : {}),
+          ...(typeof item.publishedDate === 'string' ? { publishedDate: item.publishedDate } : {}),
+          ...(typeof item.score === 'number' ? { score: item.score } : {}),
         });
       } catch {
         // Ignore malformed, local, or otherwise unsafe result URLs.

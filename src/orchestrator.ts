@@ -80,7 +80,7 @@ export async function webSearch(query: string, options: SearchOptions = {}): Pro
         backend: attempt.backend,
         outcome: attempt.outcome === 'success' ? 'success' as const : 'failed' as const,
         elapsedMs: attempt.elapsedMs,
-        reason: attempt.reason,
+        ...(attempt.reason ? { reason: attempt.reason } : {}),
       })),
     ],
   };

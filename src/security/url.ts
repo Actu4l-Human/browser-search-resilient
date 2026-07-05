@@ -89,8 +89,8 @@ export async function resolvePublicUrl(raw: string): Promise<{ url: URL; address
   }
   const records = await lookup(url.hostname, { all: true, verbatim: true });
   if (records.length === 0) throw new Error(`DNS returned no addresses for ${url.hostname}`);
-  const addresses = records.map((record) => ({ address: record.address, family: record.family as 4 | 6 }));
-  const blocked = addresses.find((record) => isBlockedAddress(record.address));
+  const addresses = records.map((record: { address: string; family: number }) => ({ address: record.address, family: record.family as 4 | 6 }));
+  const blocked = addresses.find((record: ResolvedAddress) => isBlockedAddress(record.address));
   if (blocked) throw new Error(`DNS resolved ${url.hostname} to blocked address ${blocked.address}`);
   return { url, addresses };
 }
