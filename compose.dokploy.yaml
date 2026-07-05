@@ -1,0 +1,214 @@
+x-orchestrator-build: &orchestrator-build
+  context: .
+  dockerfile: Dockerfile
+
+services:
+  browser-search:
+    build: *orchestrator-build
+    image: actualhuman/resilient-browser-search:dokploy
+    restart: unless-stopped
+    init: true
+
+    depends_on:
+      searxng:
+        condition: service_healthy
+      camofox:
+        condition: service_healthy
+
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8088
+
+      # Required by the MCP HTTP host-validation middleware.
+      ALLOWED_HOSTS: localhost,127.0.0.1,browser-search,browser-search-mcp
+      ALLOWED_ORIGINS: localhost,127.0.0.1
+
+      BROWSER_SEARCH_API_KEY: ${BROWSER_SEARCH_API_KEY:?Set BROWSER_SEARCH_API_KEY}
+      SEARXNG_URL: http://searxng:8080
+      CAMOFOX_URL: http://camofox:9377
+      CAMOFOX_API_KEY: ${CAMOFOX_API_KEY:?Set CAMOFOX_API_KEY}
+
+      CLOAK_ENABLED: ${CLOAK_ENABLED:-true}
+      CLOAKBROWSER_LICENSE_KEY: ${CLOAKBROWSER_LICENSE_KEY:-}
+      CLOAK_PROXY: ${CLOAK_PROXY:-}
+      CLOAK_GEOIP: ${CLOAK_GEOIP:-false}
+      CLOAK_HEADLESS: ${CLOAK_HEADLESS:-true}
+      CLOAK_HUMANIZE: ${CLOAK_HUMANIZE:-true}
+
+      DIRECT_TIMEOUT_MS: ${DIRECT_TIMEOUT_MS:-20000}
+      BROWSER_TIMEOUT_MS: ${BROWSER_TIMEOUT_MS:-45000}
+      CHALLENGE_WAIT_MS: ${CHALLENGE_WAIT_MS:-20000}
+      BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      RESEARCH_CONCURRENCY: ${RESEARCH_CONCURRENCY:-4}
+      MAX_RESPONSE_BYTES: ${MAX_RESPONSE_BYTES:-5000000}
+
+    expose:
+      - "8088"
+
+    volumes:
+      - cloak-cache:/home/browser/.cloakbrowser
+      - browser-profiles:/data/profiles
+
+    shm_size: 1gb
+
+    security_opt:
+      - no-new-privileges:true
+
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 4
+
+    networks:
+      camofox-control:
+      searxng-control:
+      internet:
+      dokploy-network:
+        aliases:
+          - browser-search-mcp
+
+  egress-proxy:
+    build: *orchestrator-build
+    image: actualhuman/resilient-browser-search:dokploy
+    command:
+      - node
+      - dist/egress-proxy.js
+
+    restart: unless-stopped
+    init: true
+
+    environment:
+      EGRESS_PROXY_HOST: 0.0.0.0
+      EGRESS_PROXY_PORT: 3128
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:3128/healthz >/dev/null || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+
+    security_opt:
+      - no-new-privileges:true
+
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1
+
+    networks:
+      camofox-control:
+      internet:
+
+  searxng:
+    build:
+      context: .
+      dockerfile: Dockerfile.searxng
+
+    image: actualhuman/browser-search-searxng:dokploy
+    restart: unless-stopped
+
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+
+    volumes:
+      - searxng-cache:/var/cache/searxng
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget
+          --header='X-Forwarded-For: 127.0.0.1'
+          --header='X-Real-IP: 127.0.0.1'
+          -qO-
+          'http://127.0.0.1:8080/'
+          >/dev/null || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+    security_opt:
+      - no-new-privileges:true
+
+    networks:
+      searxng-control:
+      internet:
+
+  camofox:
+    build:
+      context: .
+      dockerfile: Dockerfile.camofox
+      args:
+        CAMOFOX_VERSION: 1.11.2
+
+    image: actualhuman/camofox-browser:1.11.2-patched
+    restart: unless-stopped
+
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+
+    environment:
+      CAMOFOX_API_KEY: ${CAMOFOX_API_KEY:?Set CAMOFOX_API_KEY}
+      CAMOFOX_CRASH_REPORT_ENABLED: "false"
+      CAMOFOX_HOST: 0.0.0.0
+      CAMOFOX_PORT: 9377
+
+      PROXY_STRATEGY: round_robin
+      PROXY_HOST: egress-proxy
+      PROXY_PORT: 3128
+
+    volumes:
+      - camofox-cache:/root/.cache/camoufox
+      - camofox-data:/root/.camofox
+
+    shm_size: 1gb
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:9377/health >/dev/null || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+    security_opt:
+      - no-new-privileges:true
+
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+
+    networks:
+      camofox-control:
+
+networks:
+  camofox-control:
+    driver: bridge
+    internal: true
+
+  searxng-control:
+    driver: bridge
+    internal: true
+
+  internet:
+    driver: bridge
+
+  # Your existing attachable Dokploy overlay network.
+  dokploy-network:
+    external: true
+
+volumes:
+  browser-profiles:
+  cloak-cache:
+  camofox-cache:
+  camofox-data:
+  searxng-cache:
