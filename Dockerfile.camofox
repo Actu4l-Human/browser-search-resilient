@@ -12,6 +12,85 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npm install --global "@askjo/camofox-browser@${CAMOFOX_VERSION}" \
     && npm cache clean --force
 
+RUN set -eux; \
+    CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
+    SERVER_FILE="$CAMOFOX_DIR/server.js"; \
+    node - "$SERVER_FILE" <<'NODE'
+const fs = require("fs");
+
+const file = process.argv[2];
+const original = fs.readFileSync(file, "utf8");
+let source = original;
+
+let displayFixes = 0;
+let viewportFixes = 0;
+let reporterFixes = 0;
+
+source = source.replace(
+  /vdDisplay\s*=\s*localVirtualDisplay\.get\(\);/g,
+  () => {
+    displayFixes++;
+    return "vdDisplay = await localVirtualDisplay.get();";
+  }
+);
+
+source = source.replace(
+  /viewport\s*:\s*\{\s*width\s*:\s*1280\s*,\s*height\s*:\s*720\s*\}\s*,?/g,
+  () => {
+    viewportFixes++;
+    return "viewport: null,";
+  }
+);
+
+source = source.replace(
+  /reporter\.resetNativeMemBaseline\(\);/g,
+  () => {
+    reporterFixes++;
+    return "reporter.resetNativeMemBaseline?.();";
+  }
+);
+
+if (source === original) {
+  console.log("No changes required; expected patches may already be present.");
+} else {
+  fs.writeFileSync(file, source);
+}
+
+console.log({
+  file,
+  displayFixes,
+  viewportFixes,
+  reporterFixes,
+});
+
+if (!source.includes("vdDisplay = await localVirtualDisplay.get();")) {
+  throw new Error("VirtualDisplay await patch is missing");
+}
+
+if (!source.includes("viewport: null,")) {
+  throw new Error("Camofox viewport patch is missing");
+}
+
+if (!source.includes("resetNativeMemBaseline?.();")) {
+  throw new Error("Reporter guard patch is missing");
+}
+NODE
+
+RUN set -eux; \
+    CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
+    SERVER_FILE="$CAMOFOX_DIR/server.js"; \
+    grep -nF 'vdDisplay = await localVirtualDisplay.get();' "$SERVER_FILE"; \
+    grep -nF 'reporter.resetNativeMemBaseline?.();' "$SERVER_FILE"; \
+    test "$(grep -Fc 'viewport: null,' "$SERVER_FILE")" -ge 2; \
+    if grep -Rqs 'descriptor.viewport: null' "$CAMOFOX_DIR/node_modules/playwright-core"; then \
+      echo "ERROR: Playwright device descriptors were modified"; \
+      exit 1; \
+    fi
+
+RUN ! grep -Rqs \
+    'deviceDescriptors.*viewport: null' \
+    "$(npm root --global)/@askjo/camofox-browser/node_modules/playwright-core"
+
 # Temporary fixes for @askjo/camofox-browser 1.11.2:
 # - Await the asynchronous Xvfb display lookup.
 # - Disable fixed Playwright viewports that send unsupported isMobile metadata.
