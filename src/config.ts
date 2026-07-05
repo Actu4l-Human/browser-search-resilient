@@ -22,7 +22,7 @@ export const config = {
   port: numberEnv('PORT', 8088),
   apiKey: process.env.BROWSER_SEARCH_API_KEY ?? '',
   allowedHosts: csvEnv('ALLOWED_HOSTS', ['localhost', '127.0.0.1', 'browser-search']),
-  allowedOrigins: csvEnv('ALLOWED_ORIGINS', []),
+  allowedOrigins: csvEnv('ALLOWED_ORIGINS', ['localhost', '127.0.0.1']),
 
   searxngUrl: process.env.SEARXNG_URL ?? 'http://searxng:8080',
   camofoxUrl: process.env.CAMOFOX_URL ?? 'http://camofox:9377',

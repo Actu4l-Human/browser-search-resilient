@@ -8,8 +8,7 @@ import { health, webFetch, webResearch, webSearch } from './orchestrator.js';
 const app = createMcpFastifyApp({
   host: config.host,
   allowedHosts: config.allowedHosts,
-  ...(config.allowedOrigins.length ? { allowedOrigins: config.allowedOrigins } : {}),
-  logger: true,
+  ...(config.allowedOrigins.length ? { allowedOrigins: config.allowedOrigins } : {})
 });
 
 function authorized(header: string | string[] | undefined): boolean {
@@ -18,16 +17,16 @@ function authorized(header: string | string[] | undefined): boolean {
   return value === `Bearer ${config.apiKey}`;
 }
 
+app.addHook('preHandler', async (request: any, reply: any) => {
+  if (request.url === '/healthz' || request.url === '/readyz') return;
+  if (!authorized(request.headers.authorization)) return reply.code(401).send({ error: 'Unauthorized' });
+});
+
 app.get('/healthz', async () => ({ status: 'ok' }));
 app.get('/readyz', async (_request: any, reply: any) => {
   const state = await health(false);
   const ready = state.searxng === 'ok' && state.camofox === 'ok';
   return reply.code(ready ? 200 : 503).send(state);
-});
-
-app.addHook('preHandler', async (request: any, reply: any) => {
-  if (request.url === '/healthz' || request.url === '/readyz') return;
-  if (!authorized(request.headers.authorization)) return reply.code(401).send({ error: 'Unauthorized' });
 });
 
 app.post('/v1/search', async (request: any) => {

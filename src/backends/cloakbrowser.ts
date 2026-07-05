@@ -40,16 +40,11 @@ export async function fetchCloakBrowser(url: string, maxCharacters: number, incl
     });
     context = await browser.newContext();
 
-    const checked = new Map<string, boolean>();
     await context.route('**/*', async (route: any) => {
       const requestUrl = route.request().url();
       if (!/^https?:/i.test(requestUrl)) return route.continue();
       try {
-        const hostname = new URL(requestUrl).hostname;
-        if (!checked.has(hostname)) {
-          await resolvePublicUrl(requestUrl);
-          checked.set(hostname, true);
-        }
+        await resolvePublicUrl(requestUrl);
         return route.continue();
       } catch {
         return route.abort('blockedbyclient');

@@ -31,7 +31,7 @@ docker compose ps
 ./scripts/smoke-test.sh
 ```
 
-The first build is large because Camofox and CloakBrowser download their browser binaries.
+The first start is large because Camofox and CloakBrowser download and cache their browser binaries in named volumes.
 
 Endpoints:
 

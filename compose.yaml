@@ -15,6 +15,7 @@ services:
       HOST: 0.0.0.0
       PORT: 8088
       ALLOWED_HOSTS: localhost,127.0.0.1,browser-search
+      ALLOWED_ORIGINS: localhost,127.0.0.1
       BROWSER_SEARCH_API_KEY: ${BROWSER_SEARCH_API_KEY:-}
       SEARXNG_URL: http://searxng:8080
       CAMOFOX_URL: http://camofox:9377
@@ -30,7 +31,7 @@ services:
     ports:
       - "127.0.0.1:${BROWSER_SEARCH_PORT:-8088}:8088"
     volumes:
-      - cloak-cache:/home/browser/.cache
+      - cloak-cache:/home/browser/.cloakbrowser
       - browser-profiles:/data/profiles
     shm_size: 1gb
     security_opt:

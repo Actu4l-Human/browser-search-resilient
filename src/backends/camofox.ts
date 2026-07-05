@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { classify } from '../classifier.js';
 import { config } from '../config.js';
-import { parsePublicUrl } from '../security/url.js';
+import { resolvePublicUrl } from '../security/url.js';
 import type { FetchAttempt, LinkResult } from '../types.js';
 import { normalizeWhitespace, truncate } from '../util/text.js';
 
@@ -57,7 +57,7 @@ export async function fetchCamofox(url: string, maxCharacters: number, includeLi
   const started = performance.now();
   let tabId = '';
   try {
-    parsePublicUrl(url);
+    await resolvePublicUrl(url);
     const create = await call('/tabs', {
       method: 'POST',
       body: JSON.stringify({
@@ -103,7 +103,7 @@ export async function fetchCamofox(url: string, maxCharacters: number, includeLi
       content = extractSnapshotText(payload);
     }
 
-    parsePublicUrl(finalUrl);
+    await resolvePublicUrl(finalUrl);
     const limited = truncate(normalizeWhitespace(content), maxCharacters);
     const classification = classify({ title, content: limited.value, finalUrl });
     return {
