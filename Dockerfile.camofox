@@ -1,110 +1,182 @@
+# syntax=docker/dockerfile:1.7
+
 FROM node:22-bookworm-slim
 
 ARG CAMOFOX_VERSION=1.11.2
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl unzip python3-minimal \
-    libgtk-3-0 libdbus-glib-1-2 libxt6 libasound2 libx11-xcb1 \
-    libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxi6 \
-    libxrandr2 libxrender1 libxss1 libxtst6 libegl1 libgl1-mesa-dri \
-    libgbm1 xvfb fonts-liberation fonts-noto-color-emoji fontconfig \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install --global "@askjo/camofox-browser@${CAMOFOX_VERSION}" \
+ENV DEBIAN_FRONTEND=noninteractive \
+    NODE_ENV=production \
+    NODE_OPTIONS=--max-old-space-size=256 \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    CAMOFOX_HOST=0.0.0.0 \
+    CAMOFOX_PORT=9377
+
+# Firefox/Camoufox runtime dependencies.
+#
+# Mesa and Xvfb are important here:
+# - Mesa supplies software-rendered WebGL.
+# - Xvfb lets Camoufox run in headed mode inside the container.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        libgtk-3-0 \
+        libdbus-glib-1-2 \
+        libxt6 \
+        libasound2 \
+        libx11-xcb1 \
+        libxcomposite1 \
+        libxcursor1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxi6 \
+        libxrandr2 \
+        libxrender1 \
+        libxss1 \
+        libxtst6 \
+        libegl1-mesa \
+        libgl1-mesa-dri \
+        libgbm1 \
+        xvfb \
+        fonts-liberation \
+        fonts-noto-color-emoji \
+        fontconfig \
+        ca-certificates \
+        curl \
+        unzip \
+        python3-minimal \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install the pinned Camofox Browser server package.
+#
+# Its postinstall script downloads the matching Camoufox browser binary into
+# /root/.cache/camoufox.
+RUN npm config set registry https://registry.npmjs.org/ \
+    && npm install \
+        --global \
+        --no-audit \
+        --no-fund \
+        "@askjo/camofox-browser@${CAMOFOX_VERSION}" \
     && npm cache clean --force
 
+# Fail the image build if the package postinstall did not successfully fetch
+# the Camoufox browser binary.
+RUN set -eux; \
+    test -x /root/.cache/camoufox/camoufox-bin; \
+    test -f /root/.cache/camoufox/version.json
+
+# Record the Playwright bundle checksum before patching. The compatibility
+# patch below must never modify Playwright internals.
 RUN set -eux; \
     CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
-    SERVER_FILE="$CAMOFOX_DIR/server.js"; \
-    node - "$SERVER_FILE" <<'NODE'
-const fs = require("fs");
+    PLAYWRIGHT_FILE="${CAMOFOX_DIR}/node_modules/playwright-core/lib/coreBundle.js"; \
+    test -f "${PLAYWRIGHT_FILE}"; \
+    sha256sum "${PLAYWRIGHT_FILE}" > /tmp/playwright-core.sha256
+
+# Apply compatibility fixes only to Camofox's server.js.
+#
+# Fix 1:
+#   VirtualDisplay.get() returns a Promise in this dependency combination.
+#
+# Fix 2:
+#   Camoufox rejects Playwright viewport metadata containing isMobile.
+#   Use the real Xvfb display rather than Playwright viewport emulation.
+#
+# Fix 3:
+#   Some reporter versions do not export resetNativeMemBaseline().
+#
+# Fix 4:
+#   The periodic health probe calls browser.newContext() without options,
+#   causing Playwright to inject its default viewport and isMobile=false.
+RUN set -eux; \
+    CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
+    SERVER_FILE="${CAMOFOX_DIR}/server.js"; \
+    test -f "${SERVER_FILE}"; \
+    node - "${SERVER_FILE}" <<'NODE'
+const fs = require("node:fs");
 
 const file = process.argv[2];
-const original = fs.readFileSync(file, "utf8");
-let source = original;
+let source = fs.readFileSync(file, "utf8");
 
-let displayFixes = 0;
-let viewportFixes = 0;
-let reporterFixes = 0;
+function replaceExactly(name, before, after, expectedCount) {
+  const count = source.split(before).length - 1;
 
-source = source.replace(
-  /vdDisplay\s*=\s*localVirtualDisplay\.get\(\);/g,
-  () => {
-    displayFixes++;
-    return "vdDisplay = await localVirtualDisplay.get();";
+  if (count !== expectedCount) {
+    throw new Error(
+      `${name}: expected ${expectedCount} occurrence(s), found ${count}. ` +
+      `The pinned Camofox source may have changed.`
+    );
   }
+
+  source = source.split(before).join(after);
+  console.log(`${name}: patched ${count} occurrence(s)`);
+}
+
+replaceExactly(
+  "virtual display await",
+  "vdDisplay = localVirtualDisplay.get();",
+  "vdDisplay = await localVirtualDisplay.get();",
+  1
 );
 
-source = source.replace(
-  /viewport\s*:\s*\{\s*width\s*:\s*1280\s*,\s*height\s*:\s*720\s*\}\s*,?/g,
-  () => {
-    viewportFixes++;
-    return "viewport: null,";
-  }
+replaceExactly(
+  "Camofox context viewport",
+  "viewport: { width: 1280, height: 720 },",
+  "viewport: null,",
+  2
 );
 
-source = source.replace(
-  /reporter\.resetNativeMemBaseline\(\);/g,
-  () => {
-    reporterFixes++;
-    return "reporter.resetNativeMemBaseline?.();";
-  }
+replaceExactly(
+  "optional reporter reset",
+  "reporter.resetNativeMemBaseline();",
+  "reporter.resetNativeMemBaseline?.();",
+  1
 );
 
-if (source === original) {
-  console.log("No changes required; expected patches may already be present.");
-} else {
-  fs.writeFileSync(file, source);
-}
+replaceExactly(
+  "active health-probe viewport",
+  "testContext = await browser.newContext();",
+  "testContext = await browser.newContext({ viewport: null });",
+  1
+);
 
-console.log({
-  file,
-  displayFixes,
-  viewportFixes,
-  reporterFixes,
-});
+fs.writeFileSync(file, source);
 
-if (!source.includes("vdDisplay = await localVirtualDisplay.get();")) {
-  throw new Error("VirtualDisplay await patch is missing");
-}
-
-if (!source.includes("viewport: null,")) {
-  throw new Error("Camofox viewport patch is missing");
-}
-
-if (!source.includes("resetNativeMemBaseline?.();")) {
-  throw new Error("Reporter guard patch is missing");
-}
+console.log(`Patched ${file}`);
 NODE
 
+# Verify every intended patch, verify the old code is gone, and prove that the
+# Playwright bundle was not modified.
 RUN set -eux; \
     CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
-    SERVER_FILE="$CAMOFOX_DIR/server.js"; \
-    grep -nF 'vdDisplay = await localVirtualDisplay.get();' "$SERVER_FILE"; \
-    grep -nF 'reporter.resetNativeMemBaseline?.();' "$SERVER_FILE"; \
-    test "$(grep -Fc 'viewport: null,' "$SERVER_FILE")" -ge 2; \
-    if grep -Rqs 'descriptor.viewport: null' "$CAMOFOX_DIR/node_modules/playwright-core"; then \
-      echo "ERROR: Playwright device descriptors were modified"; \
-      exit 1; \
-    fi
-
-RUN ! grep -Rqs \
-    'deviceDescriptors.*viewport: null' \
-    "$(npm root --global)/@askjo/camofox-browser/node_modules/playwright-core"
-
-# Temporary fixes for @askjo/camofox-browser 1.11.2:
-# - Await the asynchronous Xvfb display lookup.
-# - Disable fixed Playwright viewports that send unsupported isMobile metadata.
-RUN set -eux; \
-    CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
-    sed -i 's/vdDisplay = localVirtualDisplay.get();/vdDisplay = await localVirtualDisplay.get();/g' "$CAMOFOX_DIR/server.js"; \
-    sed -i 's/viewport: { width: 1280, height: 720 },/viewport: null,/g' "$CAMOFOX_DIR/server.js"; \
-    grep -Fq 'vdDisplay = await localVirtualDisplay.get();' "$CAMOFOX_DIR/server.js"; \
-    grep -Fq 'viewport: null,' "$CAMOFOX_DIR/server.js"
-
-ENV NODE_ENV=production \
-    CAMOFOX_HOST=0.0.0.0 \
-    CAMOFOX_PORT=9377 \
-    CAMOFOX_CRASH_REPORT_ENABLED=false
+    SERVER_FILE="${CAMOFOX_DIR}/server.js"; \
+    \
+    sha256sum --check /tmp/playwright-core.sha256; \
+    rm -f /tmp/playwright-core.sha256; \
+    \
+    test "$(grep -Fc 'vdDisplay = await localVirtualDisplay.get();' "${SERVER_FILE}")" -eq 1; \
+    test "$(grep -Fc 'viewport: null,' "${SERVER_FILE}")" -eq 2; \
+    test "$(grep -Fc 'reporter.resetNativeMemBaseline?.();' "${SERVER_FILE}")" -eq 1; \
+    test "$(grep -Fc 'testContext = await browser.newContext({ viewport: null });' "${SERVER_FILE}")" -eq 1; \
+    \
+    ! grep -Fq 'vdDisplay = localVirtualDisplay.get();' "${SERVER_FILE}"; \
+    ! grep -Fq 'viewport: { width: 1280, height: 720 },' "${SERVER_FILE}"; \
+    ! grep -Fq 'reporter.resetNativeMemBaseline();' "${SERVER_FILE}"; \
+    ! grep -Fq 'testContext = await browser.newContext();' "${SERVER_FILE}"; \
+    \
+    node --check "${SERVER_FILE}"; \
+    \
+    echo "Camofox compatibility patches verified successfully."
 
 EXPOSE 9377
+
+HEALTHCHECK \
+    --interval=15s \
+    --timeout=5s \
+    --start-period=45s \
+    --retries=10 \
+    CMD curl --fail --silent --show-error \
+        http://127.0.0.1:9377/health \
+        >/dev/null || exit 1
+
 CMD ["camofox-browser"]
