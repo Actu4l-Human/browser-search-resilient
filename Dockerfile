@@ -1,10 +1,12 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
-RUN npm ci
+RUN npm config set registry https://registry.npmjs.org/ \
+    && npm config set replace-registry-host always \
+    && npm ci --no-audit --no-fund
 COPY src ./src
 RUN npm run build
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev --no-audit --no-fund
 
 FROM node:22-bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \

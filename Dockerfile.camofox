@@ -12,6 +12,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npm install --global "@askjo/camofox-browser@${CAMOFOX_VERSION}" \
     && npm cache clean --force
 
+# Temporary fixes for @askjo/camofox-browser 1.11.2:
+# - Await the asynchronous Xvfb display lookup.
+# - Disable fixed Playwright viewports that send unsupported isMobile metadata.
+RUN set -eux; \
+    CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
+    sed -i 's/vdDisplay = localVirtualDisplay.get();/vdDisplay = await localVirtualDisplay.get();/g' "$CAMOFOX_DIR/server.js"; \
+    sed -i 's/viewport: { width: 1280, height: 720 },/viewport: null,/g' "$CAMOFOX_DIR/server.js"; \
+    grep -Fq 'vdDisplay = await localVirtualDisplay.get();' "$CAMOFOX_DIR/server.js"; \
+    grep -Fq 'viewport: null,' "$CAMOFOX_DIR/server.js"
+
 ENV NODE_ENV=production \
     CAMOFOX_HOST=0.0.0.0 \
     CAMOFOX_PORT=9377 \
