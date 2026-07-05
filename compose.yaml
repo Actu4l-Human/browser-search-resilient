@@ -1,0 +1,100 @@
+services:
+  browser-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: actualhuman/resilient-browser-search:local
+    restart: unless-stopped
+    init: true
+    depends_on:
+      searxng:
+        condition: service_healthy
+      camofox:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8088
+      ALLOWED_HOSTS: localhost,127.0.0.1,browser-search
+      BROWSER_SEARCH_API_KEY: ${BROWSER_SEARCH_API_KEY:-}
+      SEARXNG_URL: http://searxng:8080
+      CAMOFOX_URL: http://camofox:9377
+      CAMOFOX_API_KEY: ${CAMOFOX_API_KEY}
+      CLOAK_ENABLED: ${CLOAK_ENABLED:-true}
+      CLOAKBROWSER_LICENSE_KEY: ${CLOAKBROWSER_LICENSE_KEY:-}
+      CLOAK_PROXY: ${CLOAK_PROXY:-}
+      CLOAK_GEOIP: ${CLOAK_GEOIP:-false}
+      CLOAK_HEADLESS: ${CLOAK_HEADLESS:-true}
+      BROWSER_CONCURRENCY: ${BROWSER_CONCURRENCY:-2}
+      RESEARCH_CONCURRENCY: ${RESEARCH_CONCURRENCY:-4}
+      MAX_RESPONSE_BYTES: ${MAX_RESPONSE_BYTES:-5000000}
+    ports:
+      - "127.0.0.1:${BROWSER_SEARCH_PORT:-8088}:8088"
+    volumes:
+      - cloak-cache:/home/browser/.cache
+      - browser-profiles:/data/profiles
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 4
+    networks: [browser-search]
+
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+    volumes:
+      - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-cache:/var/cache/searxng
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8080/search?q=health&format=json' >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    networks: [browser-search]
+
+  camofox:
+    build:
+      context: .
+      dockerfile: Dockerfile.camofox
+      args:
+        CAMOFOX_VERSION: 1.11.2
+    image: actualhuman/camofox-browser:1.11.2-local
+    restart: unless-stopped
+    environment:
+      CAMOFOX_API_KEY: ${CAMOFOX_API_KEY}
+      CAMOFOX_CRASH_REPORT_ENABLED: "false"
+      CAMOFOX_HOST: 0.0.0.0
+      CAMOFOX_PORT: 9377
+    volumes:
+      - camofox-cache:/root/.cache/camoufox
+      - camofox-data:/root/.camofox
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9377/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+    networks: [browser-search]
+
+networks:
+  browser-search:
+    driver: bridge
+
+volumes:
+  browser-profiles:
+  cloak-cache:
+  camofox-cache:
+  camofox-data:
+  searxng-cache:
