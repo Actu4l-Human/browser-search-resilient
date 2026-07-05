@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { classify } from '../classifier.js';
 import { config } from '../config.js';
-import { resolvePublicUrl } from '../security/url.js';
+import { isSecurityPolicyError, resolvePublicUrl } from '../security/url.js';
 import type { FetchAttempt, LinkResult } from '../types.js';
 import { normalizeWhitespace, truncate } from '../util/text.js';
 
@@ -116,7 +116,7 @@ export async function fetchCamofox(url: string, maxCharacters: number, includeLi
     };
   } catch (error) {
     return {
-      backend: 'camofox', outcome: 'network_error', url,
+      backend: 'camofox', outcome: isSecurityPolicyError(error) ? 'policy_denied' : 'network_error', url,
       elapsedMs: Math.round(performance.now() - started),
       reason: error instanceof Error ? error.message : String(error),
     };

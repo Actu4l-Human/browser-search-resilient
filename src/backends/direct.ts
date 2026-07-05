@@ -4,7 +4,7 @@ import type { IncomingHttpHeaders, IncomingMessage } from 'node:http';
 import { performance } from 'node:perf_hooks';
 import { classify } from '../classifier.js';
 import { config } from '../config.js';
-import { resolvePublicUrl, type ResolvedAddress } from '../security/url.js';
+import { isSecurityPolicyError, resolvePublicUrl, type ResolvedAddress } from '../security/url.js';
 import type { FetchAttempt } from '../types.js';
 import { extractLinks, extractTitle, htmlToText, truncate } from '../util/text.js';
 
@@ -116,7 +116,7 @@ export async function fetchDirect(url: string, maxCharacters: number, includeLin
   } catch (error) {
     return {
       backend: 'direct',
-      outcome: 'network_error',
+      outcome: isSecurityPolicyError(error) ? 'policy_denied' : 'network_error',
       url,
       elapsedMs: Math.round(performance.now() - started),
       reason: error instanceof Error ? error.message : String(error),

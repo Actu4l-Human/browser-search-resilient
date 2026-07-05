@@ -2,7 +2,7 @@ import { performance } from 'node:perf_hooks';
 import { launch } from 'cloakbrowser';
 import { classify, detectChallenge } from '../classifier.js';
 import { config } from '../config.js';
-import { resolvePublicUrl } from '../security/url.js';
+import { isSecurityPolicyError, resolvePublicUrl } from '../security/url.js';
 import type { FetchAttempt, LinkResult } from '../types.js';
 import { normalizeWhitespace, truncate } from '../util/text.js';
 
@@ -93,7 +93,7 @@ export async function fetchCloakBrowser(url: string, maxCharacters: number, incl
     };
   } catch (error) {
     return {
-      backend: 'cloakbrowser', outcome: 'network_error', url,
+      backend: 'cloakbrowser', outcome: isSecurityPolicyError(error) ? 'policy_denied' : 'network_error', url,
       elapsedMs: Math.round(performance.now() - started),
       reason: error instanceof Error ? error.message : String(error),
     };

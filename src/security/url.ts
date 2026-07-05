@@ -1,6 +1,17 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
+export class SecurityPolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SecurityPolicyError';
+  }
+}
+
+export function isSecurityPolicyError(error: unknown): error is SecurityPolicyError {
+  return error instanceof SecurityPolicyError;
+}
+
 export interface ResolvedAddress {
   address: string;
   family: 4 | 6;
@@ -66,16 +77,16 @@ export function parsePublicUrl(raw: string): URL {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error('Invalid URL');
+    throw new SecurityPolicyError('Invalid URL');
   }
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error(`Blocked URL scheme: ${url.protocol}`);
-  if (url.username || url.password) throw new Error('Credentials in URLs are not allowed');
+  if (!['http:', 'https:'].includes(url.protocol)) throw new SecurityPolicyError(`Blocked URL scheme: ${url.protocol}`);
+  if (url.username || url.password) throw new SecurityPolicyError('Credentials in URLs are not allowed');
   const host = url.hostname.toLowerCase();
-  if (BLOCKED_HOSTS.has(host)) throw new Error(`Blocked hostname: ${host}`);
+  if (BLOCKED_HOSTS.has(host)) throw new SecurityPolicyError(`Blocked hostname: ${host}`);
   if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.lan') || host.endsWith('.home')) {
-    throw new Error(`Blocked internal hostname: ${host}`);
+    throw new SecurityPolicyError(`Blocked internal hostname: ${host}`);
   }
-  if (isIP(host) && isBlockedAddress(host)) throw new Error(`Blocked IP address: ${host}`);
+  if (isIP(host) && isBlockedAddress(host)) throw new SecurityPolicyError(`Blocked IP address: ${host}`);
   return url;
 }
 
@@ -84,13 +95,13 @@ export async function resolvePublicUrl(raw: string): Promise<{ url: URL; address
   const literalFamily = isIP(url.hostname);
   if (literalFamily) {
     const address = url.hostname;
-    if (isBlockedAddress(address)) throw new Error(`Blocked IP address: ${address}`);
+    if (isBlockedAddress(address)) throw new SecurityPolicyError(`Blocked IP address: ${address}`);
     return { url, addresses: [{ address, family: literalFamily as 4 | 6 }] };
   }
   const records = await lookup(url.hostname, { all: true, verbatim: true });
   if (records.length === 0) throw new Error(`DNS returned no addresses for ${url.hostname}`);
   const addresses = records.map((record: { address: string; family: number }) => ({ address: record.address, family: record.family as 4 | 6 }));
   const blocked = addresses.find((record: ResolvedAddress) => isBlockedAddress(record.address));
-  if (blocked) throw new Error(`DNS resolved ${url.hostname} to blocked address ${blocked.address}`);
+  if (blocked) throw new SecurityPolicyError(`DNS resolved ${url.hostname} to blocked address ${blocked.address}`);
   return { url, addresses };
 }
