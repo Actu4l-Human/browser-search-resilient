@@ -33,7 +33,7 @@
     "@modelcontextprotocol/fastify": "2.0.0-beta.2",
     "@modelcontextprotocol/node": "2.0.0-beta.2",
     "@modelcontextprotocol/server": "2.0.0-beta.2",
-    "cloakbrowser": "0.4.7",
+    "cloakbrowser": "0.4.8",
     "fastify": "5.9.0",
     "mmdb-lib": "3.0.2",
     "parse5": "^7.3.0",
