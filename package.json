@@ -1,6 +1,6 @@
 {
   "name": "@actual-human/resilient-browser-search",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": false,
   "description": "Deterministic MCP web search and retrieval with SearXNG, direct HTTP, Camofox, and CloakBrowser fallbacks.",
   "type": "module",
@@ -33,22 +33,21 @@
     "@modelcontextprotocol/fastify": "2.0.0-beta.2",
     "@modelcontextprotocol/node": "2.0.0-beta.2",
     "@modelcontextprotocol/server": "2.0.0-beta.2",
-    "cloakbrowser": "0.4.8",
-    "fastify": "5.10.0",
+    "cloakbrowser": "0.4.7",
+    "fastify": "5.9.0",
     "mmdb-lib": "3.0.2",
-    "parse5": "^8.0.1",
-    "playwright-core": "1.61.1",
-    "socks-proxy-agent": "10.1.0",
+    "parse5": "^7.3.0",
+    "playwright-core": "1.61.0",
+    "socks-proxy-agent": "10.0.0",
     "unpdf": "1.6.2",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/node": "26.1.0",
-    "eslint": "^10.6.0",
+    "@types/node": "22.15.30",
+    "eslint": "^9.0.0",
     "prettier": "^3.0.0",
-    "tsx": "4.23.0",
-    "typescript": "6.0.3",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
     "typescript-eslint": "^8.0.0"
   }
 }

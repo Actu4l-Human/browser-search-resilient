@@ -17,6 +17,13 @@ test('webFetch with explicit private backend is policy_denied', async () => {
   assert.equal(response.result.outcome, 'policy_denied');
 });
 
+test('webFetch with explicit Crawl4AI backend still enforces URL policy before sidecar calls', async () => {
+  const response = await webFetch('http://10.0.0.5/admin', { backend: 'crawl4ai' });
+  assert.equal(response.status, 'failed');
+  assert.equal(response.result.backend, 'crawl4ai');
+  assert.equal(response.result.outcome, 'policy_denied');
+});
+
 test('webFetch rejects non-http schemes via policy_denied', async () => {
   const response = await webFetch('file:///etc/passwd', { backend: 'direct' });
   assert.equal(response.status, 'failed');
@@ -80,6 +87,7 @@ test('shallow health checks local service endpoints without executing a search',
     assert.equal(result.searxng, 'ok');
     assert.equal(result.camofox, 'ok');
     assert.equal(result.egressProxy, 'ok');
+    assert.equal(result.crawl4ai, 'disabled');
     assert.equal(
       requested.some((url) => url.includes('/search?')),
       false,
@@ -91,4 +99,18 @@ test('shallow health checks local service endpoints without executing a search',
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('webResearch asks auto fetches to prefer Crawl4AI extraction', async () => {
+  // This is intentionally a behavior-level guard rather than a network test:
+  // webResearch should request query-aware extraction, but direct fetch remains
+  // a fallback if Crawl4AI is disabled or fails.
+  const response = await webFetch('http://127.0.0.1:1234', {
+    backend: 'auto',
+    query: 'private address should be blocked',
+    preferCrawl4ai: true,
+  });
+  assert.equal(response.status, 'failed');
+  assert.equal(response.result.outcome, 'policy_denied');
+  assert.equal(response.attempts.length, 1);
 });

@@ -132,32 +132,25 @@ export function extractLinks(html: string, baseUrl: string, limit = 200): LinkRe
 }
 
 export function extractLinksFromDoc(doc: Node, baseUrl: string, limit = 200): LinkResult[] {
-  const links: LinkResult[] = [];
-  const seen = new Set<string>();
+  const collector = createLinkCollector(baseUrl, limit);
   try {
     const visit = (node: Node): void => {
-      if (isElement(node)) {
-        if (node.tagName === 'a') {
-          const href = node.attrs.find((attr) => attr.name === 'href')?.value ?? '';
-          if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !href.startsWith('mailto:')) {
-            try {
-              const url = new URL(decodeHtmlEntities(href), baseUrl).toString();
-              if (/^https?:/i.test(url) && !seen.has(url)) {
-                seen.add(url);
-                const parts: string[] = [];
-                collectText(node, parts);
-                links.push({ text: normalizeWhitespace(decodeHtmlEntities(parts.join(''))), url });
-                if (links.length >= limit) return;
-              }
-            } catch {
-              // Ignore malformed links.
-            }
-          }
+      if (collector.full) return;
+      if (isElement(node) && node.tagName === 'a') {
+        const href = node.attrs.find((attr) => attr.name === 'href')?.value ?? '';
+        if (href) {
+          // Anchor text is produced lazily so it is only collected/decoded for
+          // navigable, first-seen links that will actually be kept.
+          collector.add(href, () => {
+            const parts: string[] = [];
+            collectText(node, parts);
+            return normalizeWhitespace(decodeHtmlEntities(parts.join('')));
+          });
         }
       }
       if ('childNodes' in node) {
         for (const child of node.childNodes) {
-          if (links.length >= limit) return;
+          if (collector.full) return;
           visit(child);
         }
       }
@@ -166,7 +159,80 @@ export function extractLinksFromDoc(doc: Node, baseUrl: string, limit = 200): Li
   } catch {
     // Fall back silently; regex-based extraction is intentionally removed in favor of parse5.
   }
-  return links;
+  return [...collector.links];
+}
+
+export interface LinkCandidate {
+  href?: string;
+  text?: string;
+}
+
+// hrefs that are never navigable http(s) links. Only the bare-fragment ("#")
+// case must be filtered explicitly; javascript:/mailto: are also dropped by the
+// http(s) protocol check, but listing them keeps intent clear and matches the
+// historical anchor-extraction behavior.
+const NON_NAVIGABLE_HREF_PREFIXES = ['#', 'javascript:', 'mailto:'];
+
+// Resolve and validate a link href into an absolute http(s) URL string, or
+// undefined if it is blank, non-navigable, malformed, or a non-http(s) scheme.
+export function normalizeLinkHref(href: string, baseUrl?: string): string | undefined {
+  const trimmed = href.trim();
+  if (!trimmed) return undefined;
+  const lower = trimmed.toLowerCase();
+  if (NON_NAVIGABLE_HREF_PREFIXES.some((prefix) => lower.startsWith(prefix))) return undefined;
+  let resolved: URL;
+  try {
+    resolved = baseUrl ? new URL(decodeHtmlEntities(trimmed), baseUrl) : new URL(decodeHtmlEntities(trimmed));
+  } catch {
+    return undefined;
+  }
+  if (!/^https?:$/.test(resolved.protocol)) return undefined;
+  return resolved.toString();
+}
+
+// Incremental link collector: the single owner of normalize + validate +
+// de-duplicate + cap. Both the HTML walker (which needs early-exit on the
+// unique count) and the array-based dedupeLinks helper drive it, so every
+// backend shares identical URL handling and dedup semantics. `text` is a
+// thunk so walkers only pay for anchor-text extraction on accepted links.
+export interface LinkCollector {
+  readonly full: boolean;
+  add(href: string, text: () => string): void;
+  readonly links: readonly LinkResult[];
+}
+
+export function createLinkCollector(baseUrl?: string, limit = 200): LinkCollector {
+  const links: LinkResult[] = [];
+  const seen = new Set<string>();
+  return {
+    get full() {
+      return links.length >= limit;
+    },
+    add(href, text) {
+      if (links.length >= limit) return;
+      const url = normalizeLinkHref(href, baseUrl);
+      if (!url || seen.has(url)) return;
+      seen.add(url);
+      links.push({ text: text(), url });
+    },
+    get links() {
+      return links;
+    },
+  };
+}
+
+// Normalize, validate, and de-duplicate a stream of link candidates into at
+// most `limit` LinkResult entries. Thin wrapper over createLinkCollector.
+export function dedupeLinks(
+  candidates: Iterable<LinkCandidate | undefined | null>,
+  options: { baseUrl?: string; limit?: number } = {},
+): LinkResult[] {
+  const collector = createLinkCollector(options.baseUrl, options.limit);
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    collector.add(candidate.href ?? '', () => candidate.text ?? '');
+  }
+  return [...collector.links];
 }
 
 export function parseDocument(html: string): Node {

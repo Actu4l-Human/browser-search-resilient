@@ -1,0 +1,17 @@
+ARG CRAWL4AI_BASE_IMAGE=unclecode/crawl4ai:0.9.0@sha256:385042cba2a216c257ccb77b0135dec5228ee25bf675edbc7487eb155bd5e644
+FROM ${CRAWL4AI_BASE_IMAGE}
+
+WORKDIR /opt/resilient-crawl4ai
+COPY services/crawl4ai-sidecar/requirements.txt ./requirements.txt
+RUN python -m pip install --no-cache-dir -r requirements.txt
+COPY services/crawl4ai-sidecar/app.py ./app.py
+
+ENV CRAWL4AI_HOST=0.0.0.0 \
+    CRAWL4AI_PORT=11235 \
+    CRAWL4AI_PAGE_TIMEOUT_MS=45000 \
+    CRAWL4AI_MAX_SCROLL_STEPS=3 \
+    CRAWL4AI_SCAN_FULL_PAGE=false
+EXPOSE 11235
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:11235/healthz', timeout=3).read()" || exit 1
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "11235"]

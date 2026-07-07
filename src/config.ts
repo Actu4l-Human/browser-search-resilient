@@ -28,6 +28,7 @@ function csvEnv(name: string, fallback: string[]): string[] {
 
 const egressProxyUrl = process.env.EGRESS_PROXY_URL ?? 'http://egress-proxy:3128';
 const cloakEnabled = boolEnv('CLOAK_ENABLED', true);
+const crawl4aiEnabled = boolEnv('CRAWL4AI_ENABLED', false);
 
 export const config = {
   host: process.env.HOST ?? '127.0.0.1',
@@ -42,6 +43,11 @@ export const config = {
   camofoxApiKey: process.env.CAMOFOX_API_KEY ?? '',
   camofoxUserId: process.env.CAMOFOX_USER_ID ?? 'resilient-browser-search',
   camofoxSessionKey: process.env.CAMOFOX_SESSION_KEY ?? 'default',
+
+  crawl4aiEnabled,
+  crawl4aiUrl: process.env.CRAWL4AI_URL ?? 'http://crawl4ai:11235',
+  crawl4aiToken: process.env.CRAWL4AI_TOKEN ?? '',
+  crawl4aiTimeoutMs: numberEnv('CRAWL4AI_TIMEOUT_MS', 45_000),
 
   cloakEnabled,
   cloakLicenseKey: process.env.CLOAKBROWSER_LICENSE_KEY ?? '',
@@ -81,6 +87,12 @@ export function warnOnInsecureDefaults(): void {
   const loopback = host === '127.0.0.1' || host === '::1' || host === 'localhost';
   if (!loopback && !config.apiKey) {
     log.warn('Listening on a non-loopback address without BROWSER_SEARCH_API_KEY; access is unauthenticated', { host });
+  }
+  if (config.crawl4aiEnabled && !config.crawl4aiUrl) {
+    log.warn('Crawl4AI is enabled without CRAWL4AI_URL; crawl4ai backend will fail');
+  }
+  if (config.crawl4aiEnabled && !config.crawl4aiToken) {
+    log.warn('Crawl4AI is enabled without CRAWL4AI_TOKEN; keep the sidecar on an internal network only');
   }
   if (config.cloakEnabled && !config.cloakProxy) {
     log.warn('CloakBrowser is enabled without CLOAK_PROXY; DNS rebinding protection is reduced');

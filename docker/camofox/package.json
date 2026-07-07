@@ -9,6 +9,9 @@
     "@askjo/camofox-browser": {
       "camoufox-js": "0.11.1",
       "playwright-core": "1.61.0"
+    },
+    "swagger-jsdoc": {
+      "glob": "^13.0.0"
     }
   }
 }

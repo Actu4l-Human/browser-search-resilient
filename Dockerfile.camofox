@@ -1,8 +1,18 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:26-bookworm-slim
+FROM node:22-bookworm-slim
 
 ARG CAMOFOX_VERSION=1.11.2
+
+# Pinned Camoufox browser build, expressed as the version string camoufox-js'
+# resolver writes to version.json (installedVerStr()): "<firefox>-<release>".
+# This is the asset daijro/camoufox GitHub release tag v150.0.2-beta.25 ships
+# (asset camoufox-150.0.2-alpha.26-lin.x86_64.zip); upstream tags the release
+# "beta.25" but embeds "alpha.26" in the asset name, so the resolver value is
+# 150.0.2-alpha.26. `camoufox-js fetch` has no version flag, so the build instead
+# asserts this exact value and fails if a different browser is selected, pinning
+# the binary for reproducible images.
+ARG CAMOUFOX_BROWSER_VERSION=150.0.2-alpha.26
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
@@ -53,18 +63,54 @@ RUN apt-get update \
 WORKDIR /opt/camofox
 COPY docker/camofox/package.json docker/camofox/package-lock.json ./
 RUN npm config set registry https://registry.npmjs.org/ \
-    && npm ci --omit=dev --no-audit --no-fund \
+    && CAMOFOX_SKIP_DOWNLOAD=1 npm ci --omit=dev --no-audit --no-fund \
     && test "$(node -p "require('./node_modules/@askjo/camofox-browser/package.json').version")" = "${CAMOFOX_VERSION}" \
     && mkdir -p /usr/local/lib/node_modules/@askjo \
     && ln -s /opt/camofox/node_modules/@askjo/camofox-browser /usr/local/lib/node_modules/@askjo/camofox-browser \
     && ln -s /opt/camofox/node_modules/@askjo/camofox-browser/bin/camofox-browser.js /usr/local/bin/camofox-browser \
     && npm cache clean --force
 
-# Fail the image build if the package postinstall did not successfully fetch
-# the Camoufox browser binary.
+# Work around an upstream daijro/camoufox packaging regression: the newest
+# release (v152.0.2-alpha, a GitHub prerelease published 2026-07-06) ships a
+# fonts-only `lin.x86_64.zip` with no browser binary, so `camoufox-js fetch`
+# "succeeds" but produces an unusable install. camoufox-js@0.11.1 does not
+# filter prereleases, so patch its release selector to skip them; the latest
+# non-prerelease (v150.0.2-beta.25) ships the full browser (camoufox-bin).
+# Revisit once camoufox-js filters prereleases or daijro republishes a usable
+# stable asset.
+RUN node - node_modules/camoufox-js/dist/pkgman.js <<'NODE'
+const fs = require("node:fs");
+
+const file = process.argv[2];
+const source = fs.readFileSync(file, "utf8");
+
+const before = "for (const release of releases) {";
+const after = "for (const release of releases.filter((release) => !release.prerelease)) {";
+const count = source.split(before).length - 1;
+
+if (count !== 1) {
+  throw new Error(
+    `camoufox-js release-loop patch: expected 1 occurrence, found ${count}. ` +
+    `The pinned camoufox-js source may have changed.`
+  );
+}
+
+fs.writeFileSync(file, source.split(before).join(after));
+console.log("camoufox-js: skip prerelease releases when selecting a browser asset");
+NODE
+
+# Fail the image build if Camoufox was not downloaded successfully.
+#
+# CAMOFOX_SKIP_DOWNLOAD=1 above skips the @askjo/camofox-browser postinstall
+# download so the npm ci layer stays small and cacheable; this step fetches the
+# browser in its own layer. camoufox-js installs into its default per-user
+# cache (~/.cache/camoufox), and the server resolves the browser from there at
+# runtime, so no CAMOUFOX_INSTALL_DIR override is needed. Validate through
+# camoufox-js' own resolver (launchPath/installedVerStr throw if the binary or
+# version.json are missing) rather than a hard-coded path.
 RUN set -eux; \
-    test -x /root/.cache/camoufox/camoufox-bin; \
-    test -f /root/.cache/camoufox/version.json
+    npx --yes camoufox-js fetch; \
+    node --input-type=module -e "import { launchPath, installedVerStr } from 'camoufox-js/dist/pkgman.js'; const expected = '${CAMOUFOX_BROWSER_VERSION}'; const actual = installedVerStr(); if (actual !== expected) { console.error('Camoufox version drift: expected ' + expected + ' but fetched ' + actual + '. Re-pin CAMOUFOX_BROWSER_VERSION (and re-check the release selector patch) if this is intentional.'); process.exit(1); } const executable = launchPath(); console.log('Camoufox ' + actual + ' (pinned) ' + executable);"
 
 # Record the Playwright bundle checksum before patching. The compatibility
 # patch below must never modify Playwright internals.

@@ -12,7 +12,7 @@ function result(value: unknown) {
 }
 
 export function createServer(): McpServer {
-  const server = new McpServer({ name: 'resilient-browser-search', version: '0.2.0' });
+  const server = new McpServer({ name: 'resilient-browser-search', version: '0.2.1' });
 
   server.registerTool(
     'web_search',
@@ -31,7 +31,7 @@ export function createServer(): McpServer {
     'web_fetch',
     {
       description:
-        'Retrieve a public URL. Auto mode uses direct HTTP first, Camofox for JavaScript or challenge pages, and CloakBrowser as the final fallback. Authentication, paywalls, policy denials, and unresolved human verification are not bypassed.',
+        'Retrieve a public URL. Auto mode uses direct HTTP first, optional Crawl4AI Markdown extraction when configured, Camofox for JavaScript or challenge pages, and CloakBrowser as the final fallback. Authentication, paywalls, policy denials, and unresolved human verification are not bypassed.',
       inputSchema: fetchInputSchema,
     },
     async (input: any) => {
@@ -57,7 +57,7 @@ export function createServer(): McpServer {
     'web_health',
     {
       description:
-        'Check the orchestrator and its SearXNG, Camofox, egress proxy, and CloakBrowser backends. Deep mode launches CloakBrowser against example.com.',
+        'Check the orchestrator and its SearXNG, optional Crawl4AI, Camofox, egress proxy, and CloakBrowser backends. Deep mode launches enabled browser extraction backends against example.com.',
       inputSchema: z.object({ deep: z.boolean().default(false) }),
     },
     async ({ deep }: { deep: boolean }) => {

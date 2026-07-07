@@ -13,6 +13,10 @@ services:
     depends_on:
       searxng:
         condition: service_healthy
+      # crawl4ai is optional and gracefully degraded; don't gate app startup on
+      # its browser-launch healthcheck (matches compose.yaml).
+      crawl4ai:
+        condition: service_started
       camofox:
         condition: service_healthy
       egress-proxy:
@@ -30,6 +34,10 @@ services:
       BROWSER_SEARCH_API_KEY: ${BROWSER_SEARCH_API_KEY:?Set BROWSER_SEARCH_API_KEY}
       SEARXNG_URL: http://searxng:8080
       CAMOFOX_URL: http://camofox:9377
+      CRAWL4AI_ENABLED: ${CRAWL4AI_ENABLED:-true}
+      CRAWL4AI_URL: http://crawl4ai:11235
+      CRAWL4AI_TOKEN: ${CRAWL4AI_TOKEN:?Set CRAWL4AI_TOKEN}
+      CRAWL4AI_TIMEOUT_MS: ${CRAWL4AI_TIMEOUT_MS:-45000}
       EGRESS_PROXY_URL: http://egress-proxy:3128
       CAMOFOX_API_KEY: ${CAMOFOX_API_KEY:?Set CAMOFOX_API_KEY}
 
@@ -67,6 +75,7 @@ services:
 
     networks:
       camofox-control:
+      crawl4ai-control:
       searxng-control:
       internet:
       dokploy-network:
@@ -110,6 +119,7 @@ services:
 
     networks:
       camofox-control:
+      crawl4ai-control:
       internet:
 
   searxng:
@@ -147,6 +157,49 @@ services:
     networks:
       searxng-control:
       internet:
+
+
+  crawl4ai:
+    build:
+      context: .
+      dockerfile: Dockerfile.crawl4ai
+
+    image: actualhuman/browser-search-crawl4ai:dokploy
+    restart: unless-stopped
+
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+
+    environment:
+      CRAWL4AI_TOKEN: ${CRAWL4AI_TOKEN:?Set CRAWL4AI_TOKEN}
+      CRAWL4AI_PROXY: http://egress-proxy:3128
+      CRAWL4AI_USER_AGENT: "${WEB_USER_AGENT:-Mozilla/5.0 (compatible; ResilientBrowserSearch/0.2; +https://github.com/actual-human)}"
+      CRAWL4AI_PAGE_TIMEOUT_MS: ${CRAWL4AI_PAGE_TIMEOUT_MS:-45000}
+      CRAWL4AI_MAX_SCROLL_STEPS: ${CRAWL4AI_MAX_SCROLL_STEPS:-3}
+      CRAWL4AI_SCAN_FULL_PAGE: ${CRAWL4AI_SCAN_FULL_PAGE:-false}
+
+    shm_size: 1gb
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:11235/healthz', timeout=3).read()"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+    security_opt:
+      - no-new-privileges:true
+
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+
+    networks:
+      crawl4ai-control:
 
   camofox:
     build:
@@ -202,6 +255,10 @@ networks:
     internal: true
 
   searxng-control:
+    driver: bridge
+    internal: true
+
+  crawl4ai-control:
     driver: bridge
     internal: true
 

@@ -19,4 +19,9 @@ curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
   -d '{"query":"Model Context Protocol","maxResults":3}' "$BASE_URL/v1/search"
 curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com","backend":"auto","maxCharacters":5000}' "$BASE_URL/v1/fetch"
+
+if [[ "${CRAWL4AI_ENABLED:-true}" != "false" ]]; then
+  curl -fsS "${AUTH[@]}" -H 'Content-Type: application/json' \
+    -d '{"url":"https://example.com","backend":"crawl4ai","query":"example domain","maxCharacters":5000}' "$BASE_URL/v1/fetch"
+fi
 printf '\nSmoke tests passed.\n'

@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks';
 import { shouldEscalate } from './classifier.js';
 import { config, warnOnInsecureDefaults } from './config.js';
 import { fetchCamofox } from './backends/camofox.js';
+import { fetchCrawl4ai } from './backends/crawl4ai.js';
 import { fetchCloakBrowser } from './backends/cloakbrowser.js';
 import { fetchDirect } from './backends/direct.js';
 import { allowedByDomain, searchSearxng } from './search/searxng.js';
@@ -42,30 +43,44 @@ async function runBackend(
   maxCharacters: number,
   includeLinks: boolean,
   reserve: 'browser' | 'health' = 'browser',
+  query?: string,
 ): Promise<FetchAttempt> {
   const started = performance.now();
   try {
     if (backend === 'direct') return await fetchDirect(url, maxCharacters, includeLinks);
     const semaphore = reserve === 'health' ? healthSemaphore : browserSemaphore;
-    const operation = backend === 'camofox' ? fetchCamofox : fetchCloakBrowser;
-    return await semaphore.run(
-      () => operation(url, maxCharacters, includeLinks),
-      (waitMs) => metrics.observeSemaphoreWait(reserve, waitMs),
-    );
+    const operation =
+      backend === 'crawl4ai'
+        ? () => fetchCrawl4ai(url, maxCharacters, includeLinks, query)
+        : backend === 'camofox'
+          ? () => fetchCamofox(url, maxCharacters, includeLinks)
+          : () => fetchCloakBrowser(url, maxCharacters, includeLinks);
+    return await semaphore.run(operation, (waitMs) => metrics.observeSemaphoreWait(reserve, waitMs));
   } finally {
     metrics.observeBackendDuration(backend, performance.now() - started);
   }
 }
 
-function fetchCacheKey(url: string, maxCharacters: number, includeLinks: boolean, requested: string): string {
-  return JSON.stringify({ url, maxCharacters, includeLinks, backend: requested });
+function fetchCacheKey(url: string, maxCharacters: number, includeLinks: boolean, requested: string, options: FetchOptions): string {
+  return JSON.stringify({
+    url,
+    maxCharacters,
+    includeLinks,
+    backend: requested,
+    query: options.query ?? '',
+    preferCrawl4ai: options.preferCrawl4ai ?? false,
+  });
+}
+
+function autoBackendChain(): BackendName[] {
+  return ['direct', ...(config.crawl4aiEnabled ? ['crawl4ai' as const] : []), 'camofox', ...(config.cloakEnabled ? ['cloakbrowser' as const] : [])];
 }
 
 async function webFetchImpl(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
   const maxCharacters = normalizeMaxCharacters(options.maxCharacters);
   const includeLinks = options.includeLinks ?? true;
   const requested = options.backend ?? 'auto';
-  const cacheKey = fetchCacheKey(url, maxCharacters, includeLinks, requested);
+  const cacheKey = fetchCacheKey(url, maxCharacters, includeLinks, requested, options);
 
   if (fetchCache) {
     const cached = fetchCache.get(cacheKey);
@@ -73,20 +88,37 @@ async function webFetchImpl(url: string, options: FetchOptions = {}): Promise<Fe
     if (cached) return cached;
   }
 
-  const chain: BackendName[] =
-    requested === 'auto' ? ['direct', 'camofox', ...(config.cloakEnabled ? ['cloakbrowser' as const] : [])] : [requested];
+  const chain: BackendName[] = requested === 'auto' ? autoBackendChain() : [requested];
   const attempts: FetchAttempt[] = [];
+  let directSuccess: FetchAttempt | undefined;
 
   for (const backend of chain) {
-    const attempt = await runBackend(backend, url, maxCharacters, includeLinks);
+    const attempt = await runBackend(backend, url, maxCharacters, includeLinks, 'browser', options.query);
     attempts.push(attempt);
     metrics.recordBackendOutcome(backend, attempt.outcome);
     if (attempt.outcome === 'success') {
+      if (backend === 'direct' && requested === 'auto' && config.crawl4aiEnabled && options.preferCrawl4ai) {
+        directSuccess = attempt;
+        continue;
+      }
       const response: FetchResponse = { status: 'success', requestedUrl: url, result: attempt, attempts };
       fetchCache?.set(cacheKey, response);
       return response;
     }
-    if (!shouldEscalate(attempt.outcome)) return { status: 'failed', requestedUrl: url, result: attempt, attempts };
+    if (!shouldEscalate(attempt.outcome)) {
+      if (directSuccess) {
+        const response: FetchResponse = { status: 'success', requestedUrl: url, result: directSuccess, attempts };
+        fetchCache?.set(cacheKey, response);
+        return response;
+      }
+      return { status: 'failed', requestedUrl: url, result: attempt, attempts };
+    }
+  }
+
+  if (directSuccess) {
+    const response: FetchResponse = { status: 'success', requestedUrl: url, result: directSuccess, attempts };
+    fetchCache?.set(cacheKey, response);
+    return response;
   }
 
   const result = attempts.at(-1) ?? {
@@ -224,6 +256,8 @@ async function webResearchImpl(
             backend: 'auto',
             maxCharacters: options.maxCharactersPerSource ?? 30_000,
             includeLinks: false,
+            query,
+            preferCrawl4ai: true,
           }),
         (waitMs) => metrics.observeSemaphoreWait('research', waitMs),
       ),
@@ -256,19 +290,31 @@ async function serviceCheck(url: string, headers?: Record<string, string>): Prom
 }
 
 export async function health(deep = false): Promise<Record<string, unknown>> {
-  const checks: Record<string, unknown> = { service: 'ok', cloakEnabled: config.cloakEnabled };
+  const checks: Record<string, unknown> = {
+    service: 'ok',
+    crawl4aiEnabled: config.crawl4aiEnabled,
+    cloakEnabled: config.cloakEnabled,
+  };
   const started = Date.now();
   const searxUrl = `${config.searxngUrl.replace(/\/$/, '')}/`;
   const camofoxUrl = `${config.camofoxUrl.replace(/\/$/, '')}/health`;
   const egressUrl = `${config.egressProxyUrl.replace(/\/$/, '')}/healthz`;
-  const [searxng, camofox, egressProxy] = await Promise.all([
+  const crawl4aiUrl = `${config.crawl4aiUrl.replace(/\/$/, '')}/healthz`;
+  const [searxng, camofox, egressProxy, crawl4ai] = await Promise.all([
     serviceCheck(searxUrl, { 'X-Forwarded-For': '127.0.0.1', 'X-Real-IP': '127.0.0.1' }),
     serviceCheck(camofoxUrl),
     serviceCheck(egressUrl),
+    config.crawl4aiEnabled ? serviceCheck(crawl4aiUrl) : Promise.resolve('disabled'),
   ]);
   checks.searxng = searxng;
   checks.camofox = camofox;
   checks.egressProxy = egressProxy;
+  checks.crawl4ai = crawl4ai;
+
+  if (deep && config.crawl4aiEnabled) {
+    const result = await runBackend('crawl4ai', 'https://example.com', 2000, false, 'health');
+    checks.crawl4ai = result.outcome === 'success' ? 'ok' : (result.reason ?? result.outcome);
+  }
 
   if (deep && config.cloakEnabled) {
     const result = await runBackend('cloakbrowser', 'https://example.com', 2000, false, 'health');

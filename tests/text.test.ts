@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extractLinks, extractTitle, htmlToText, truncate } from '../src/util/text.js';
+import { dedupeLinks, extractLinks, extractTitle, htmlToText, truncate } from '../src/util/text.js';
 
 test('extractTitle decodes entities and strips tags', () => {
   assert.equal(extractTitle('<html><head><title>Hello &amp; <b>World</b></title></head><body></body></html>'), 'Hello & World');
@@ -21,6 +21,35 @@ test('extractLinks resolves relative urls against base and dedupes', () => {
   assert.equal(links.length, 2);
   assert.equal(links[0]!.url, 'https://example.test/a');
   assert.equal(links[1]!.url, 'https://other.test/b');
+});
+
+test('dedupeLinks normalizes, validates, and dedupes candidates', () => {
+  const out = dedupeLinks(
+    [
+      { href: '/a', text: 'A' },
+      { href: 'HTTPS://Example.test/a', text: 'dup-case' },
+      { href: 'https://example.test/a', text: 'dup-normalized' },
+      { href: 'javascript:alert(1)', text: 'x' },
+      { href: 'mailto:x@y.test', text: 'm' },
+      { href: 'ftp://h/p', text: 'f' },
+      { href: '   ', text: 'blank' },
+      undefined,
+      { href: 'https://other.test/b', text: 'B' },
+    ],
+    { baseUrl: 'https://example.test/' },
+  );
+  assert.deepEqual(
+    out.map((l) => l.url),
+    ['https://example.test/a', 'https://other.test/b'],
+  );
+  assert.equal(out[0]!.text, 'A');
+});
+
+test('dedupeLinks honors the limit and requires absolute urls when no base', () => {
+  const many = Array.from({ length: 5 }, (_, i) => ({ href: `https://x.test/p${i}`, text: `${i}` }));
+  assert.equal(dedupeLinks(many, { limit: 3 }).length, 3);
+  // Without a baseUrl, relative hrefs are dropped.
+  assert.deepEqual(dedupeLinks([{ href: '/rel', text: 'r' }], {}), []);
 });
 
 test('truncate appends marker when over limit', () => {

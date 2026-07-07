@@ -8,3 +8,4 @@ coverage/
 *.zip
 *.tar.gz
 .DS_Store
+.kilo/

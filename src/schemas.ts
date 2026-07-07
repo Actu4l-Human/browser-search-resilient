@@ -13,9 +13,11 @@ export const searchInputSchema = z.object({
 
 export const fetchInputSchema = z.object({
   url: z.string().url(),
-  backend: z.enum(['auto', 'direct', 'camofox', 'cloakbrowser']).default('auto'),
+  backend: z.enum(['auto', 'direct', 'crawl4ai', 'camofox', 'cloakbrowser']).default('auto'),
   maxCharacters: z.number().int().min(1000).max(200000).default(50000),
   includeLinks: z.boolean().default(true),
+  query: z.string().min(1).max(2000).optional(),
+  preferCrawl4ai: z.boolean().default(false),
 });
 
 export const researchInputSchema = z.object({
@@ -54,7 +56,13 @@ export function toSearchOptions(input: SearchOptionFields): SearchOptions {
 }
 
 export function toFetchOptions(input: FetchInput): FetchOptions {
-  return { backend: input.backend, maxCharacters: input.maxCharacters, includeLinks: input.includeLinks };
+  return {
+    backend: input.backend,
+    maxCharacters: input.maxCharacters,
+    includeLinks: input.includeLinks,
+    ...(input.query ? { query: input.query } : {}),
+    ...(input.preferCrawl4ai ? { preferCrawl4ai: input.preferCrawl4ai } : {}),
+  };
 }
 
 export function toResearchOptions(input: ResearchInput): SearchOptions & { maxSources?: number; maxCharactersPerSource?: number } {

@@ -1,4 +1,4 @@
-export type BackendName = 'direct' | 'camofox' | 'cloakbrowser';
+export type BackendName = 'direct' | 'crawl4ai' | 'camofox' | 'cloakbrowser';
 
 export type FetchOutcome =
   | 'success'
@@ -69,6 +69,10 @@ export interface FetchOptions {
   backend?: 'auto' | BackendName;
   maxCharacters?: number;
   includeLinks?: boolean;
+  /** Optional relevance query used by extraction backends such as Crawl4AI BM25 filtering. */
+  query?: string;
+  /** Continue from a successful direct fetch into Crawl4AI when richer Markdown is preferred. */
+  preferCrawl4ai?: boolean;
 }
 
 export interface SearchOptions {

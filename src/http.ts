@@ -53,7 +53,11 @@ app.get('/metrics', async (_request: FastifyRequest, reply: FastifyReply) => {
 });
 app.get('/readyz', async (_request: FastifyRequest, reply: FastifyReply) => {
   const state = await health(false);
-  const ready = state.searxng === 'ok' && state.camofox === 'ok' && state.egressProxy === 'ok';
+  const ready =
+    state.searxng === 'ok' &&
+    state.camofox === 'ok' &&
+    state.egressProxy === 'ok' &&
+    (state.crawl4ai === 'ok' || state.crawl4ai === 'disabled');
   return reply.code(ready ? 200 : 503).send(state);
 });
 

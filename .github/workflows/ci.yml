@@ -9,8 +9,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
@@ -42,9 +42,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CAMOFOX_API_KEY: ci-placeholder-camofox-key
+      CRAWL4AI_TOKEN: ci-placeholder-crawl4ai-token
       BROWSER_SEARCH_API_KEY: ci-placeholder-browser-search-key
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
       - name: Validate Compose manifests
         run: |
           docker compose -f compose.yaml config >/dev/null
@@ -53,5 +54,7 @@ jobs:
         run: docker build -f Dockerfile -t rbs-ci:local .
       - name: Build SearXNG image
         run: docker build -f Dockerfile.searxng -t rbs-searxng-ci:local .
+      - name: Build Crawl4AI sidecar image
+        run: docker build -f Dockerfile.crawl4ai -t rbs-crawl4ai-ci:local .
       - name: Build patched Camofox image
         run: docker build -f Dockerfile.camofox --build-arg CAMOFOX_VERSION=1.11.2 -t rbs-camofox-ci:local .
