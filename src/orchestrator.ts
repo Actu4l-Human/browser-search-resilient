@@ -73,7 +73,12 @@ function fetchCacheKey(url: string, maxCharacters: number, includeLinks: boolean
 }
 
 function autoBackendChain(): BackendName[] {
-  return ['direct', ...(config.crawl4aiEnabled ? ['crawl4ai' as const] : []), 'camofox', ...(config.cloakEnabled ? ['cloakbrowser' as const] : [])];
+  return [
+    'direct',
+    ...(config.crawl4aiEnabled ? ['crawl4ai' as const] : []),
+    'camofox',
+    ...(config.cloakEnabled ? ['cloakbrowser' as const] : []),
+  ];
 }
 
 async function webFetchImpl(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
@@ -145,7 +150,8 @@ export function browserSearchResults(
   for (const link of links ?? []) {
     try {
       const url = new URL(link.url);
-      const redirected = url.hostname.endsWith('google.com') && url.pathname === '/url' ? url.searchParams.get('q') : null;
+      const isGoogleHost = url.hostname === 'google.com' || url.hostname.endsWith('.google.com');
+      const redirected = isGoogleHost && url.pathname === '/url' ? url.searchParams.get('q') : null;
       const target = redirected ? new URL(redirected) : url;
       if (!['http:', 'https:'].includes(target.protocol)) continue;
       if (/google\.|gstatic\.|accounts\.|support\./i.test(target.hostname)) continue;
