@@ -73,7 +73,12 @@ function fetchCacheKey(url: string, maxCharacters: number, includeLinks: boolean
 }
 
 function autoBackendChain(): BackendName[] {
-  return ['direct', ...(config.crawl4aiEnabled ? ['crawl4ai' as const] : []), 'camofox', ...(config.cloakEnabled ? ['cloakbrowser' as const] : [])];
+  return [
+    'direct',
+    ...(config.crawl4aiEnabled ? ['crawl4ai' as const] : []),
+    'camofox',
+    ...(config.cloakEnabled ? ['cloakbrowser' as const] : []),
+  ];
 }
 
 async function webFetchImpl(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
