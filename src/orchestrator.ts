@@ -145,7 +145,8 @@ export function browserSearchResults(
   for (const link of links ?? []) {
     try {
       const url = new URL(link.url);
-      const redirected = url.hostname.endsWith('google.com') && url.pathname === '/url' ? url.searchParams.get('q') : null;
+      const isGoogleHost = url.hostname === 'google.com' || url.hostname.endsWith('.google.com');
+      const redirected = isGoogleHost && url.pathname === '/url' ? url.searchParams.get('q') : null;
       const target = redirected ? new URL(redirected) : url;
       if (!['http:', 'https:'].includes(target.protocol)) continue;
       if (/google\.|gstatic\.|accounts\.|support\./i.test(target.hostname)) continue;
