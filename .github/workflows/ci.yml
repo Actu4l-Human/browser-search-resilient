@@ -9,7 +9,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -45,7 +45,7 @@ jobs:
       CRAWL4AI_TOKEN: ci-placeholder-crawl4ai-token
       BROWSER_SEARCH_API_KEY: ci-placeholder-browser-search-key
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate Compose manifests
         run: |
           docker compose -f compose.yaml config >/dev/null
