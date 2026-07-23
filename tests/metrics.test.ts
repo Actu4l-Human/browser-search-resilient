@@ -32,10 +32,7 @@ test('metrics collector records counters and emits OpenMetrics text', () => {
   assert.equal((after.responsesByStatus['200'] ?? 0) - (before.responsesByStatus['200'] ?? 0), 1);
   assert.equal((after.responsesByStatus['429'] ?? 0) - (before.responsesByStatus['429'] ?? 0), 1);
   assert.equal((after.toolInvocations[tool] ?? 0) - (before.toolInvocations[tool] ?? 0), 1);
-  assert.equal(
-    (after.backendOutcomes[backend]?.[outcome] ?? 0) - (before.backendOutcomes[backend]?.[outcome] ?? 0),
-    1,
-  );
+  assert.equal((after.backendOutcomes[backend]?.[outcome] ?? 0) - (before.backendOutcomes[backend]?.[outcome] ?? 0), 1);
   assert.equal(after.rateLimitRejections, before.rateLimitRejections + 1);
   assert.equal(after.requestDurationMsCount, before.requestDurationMsCount + 2);
   assert.equal(after.requestDurationMsSum, before.requestDurationMsSum + 30);
