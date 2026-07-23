@@ -6,13 +6,11 @@ ARG CAMOFOX_VERSION=1.12.0
 
 # Pinned Camoufox browser build, expressed as the version string camoufox-js'
 # resolver writes to version.json (installedVerStr()): "<firefox>-<release>".
-# This is the asset daijro/camoufox GitHub release tag v150.0.2-beta.25 ships
-# (asset camoufox-150.0.2-alpha.26-lin.x86_64.zip); upstream tags the release
-# "beta.25" but embeds "alpha.26" in the asset name, so the resolver value is
-# 150.0.2-alpha.26. `camoufox-js fetch` has no version flag, so the build instead
-# asserts this exact value and fails if a different browser is selected, pinning
-# the binary for reproducible images.
-ARG CAMOUFOX_BROWSER_VERSION=150.0.2-alpha.26
+# This is the asset daijro/camoufox GitHub release tag v152.0.4-beta.28 ships
+# (asset camoufox-152.0.4-beta.28-lin.x86_64.zip). `camoufox-js fetch` has no
+# version flag, so the build instead asserts this exact value and fails if a
+# different browser is selected, pinning the binary for reproducible images.
+ARG CAMOUFOX_BROWSER_VERSION=152.0.4-beta.28
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
@@ -70,14 +68,11 @@ RUN npm config set registry https://registry.npmjs.org/ \
     && ln -s /opt/camofox/node_modules/@askjo/camofox-browser/bin/camofox-browser.js /usr/local/bin/camofox-browser \
     && npm cache clean --force
 
-# Work around an upstream daijro/camoufox packaging regression: the newest
-# release (v152.0.2-alpha, a GitHub prerelease published 2026-07-06) ships a
-# fonts-only `lin.x86_64.zip` with no browser binary, so `camoufox-js fetch`
-# "succeeds" but produces an unusable install. camoufox-js@0.11.1 does not
-# filter prereleases, so patch its release selector to skip them; the latest
-# non-prerelease (v150.0.2-beta.25) ships the full browser (camoufox-bin).
-# Revisit once camoufox-js filters prereleases or daijro republishes a usable
-# stable asset.
+# camoufox-js@0.11.1 does not filter prereleases when selecting a browser
+# asset. Patch its release selector to skip prerelease GitHub releases so that
+# only proper stable releases (e.g. v152.0.4-beta.28) are considered. This
+# guards against future prerelease regressions like the v152.0.2-alpha asset
+# that shipped only fonts with no browser binary.
 RUN node - node_modules/camoufox-js/dist/pkgman.js <<'NODE'
 const fs = require("node:fs");
 
