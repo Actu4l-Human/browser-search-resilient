@@ -30,24 +30,24 @@
     "test:coverage": "npm run typecheck && node --import tsx --test --experimental-test-coverage --test-coverage-lines=70 --test-coverage-functions=70 --test-coverage-branches=70 tests/*.test.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/fastify": "2.0.0-beta.2",
-    "@modelcontextprotocol/node": "2.0.0-beta.2",
-    "@modelcontextprotocol/server": "2.0.0-beta.2",
-    "cloakbrowser": "0.4.7",
-    "fastify": "5.9.0",
+    "@modelcontextprotocol/fastify": "2.0.0-beta.3",
+    "@modelcontextprotocol/node": "2.0.0-beta.3",
+    "@modelcontextprotocol/server": "2.0.0-beta.3",
+    "cloakbrowser": "0.4.10",
+    "fastify": "5.10.0",
     "mmdb-lib": "3.0.2",
     "parse5": "^7.3.0",
-    "playwright-core": "1.61.0",
-    "socks-proxy-agent": "10.0.0",
+    "playwright-core": "1.61.1",
+    "socks-proxy-agent": "10.1.0",
     "unpdf": "1.6.2",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "22.15.30",
     "eslint": "^9.0.0",
-    "prettier": "^3.0.0",
-    "tsx": "4.20.6",
+    "prettier": "^3.9.5",
+    "tsx": "4.23.0",
     "typescript": "5.9.3",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.63.0"
   }
 }

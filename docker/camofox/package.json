@@ -1,11 +1,12 @@
 {
   "name": "resilient-browser-search-camofox-runtime",
-  "version": "1.11.2",
+  "version": "1.12.0",
   "private": true,
   "dependencies": {
-    "@askjo/camofox-browser": "1.11.2"
+    "@askjo/camofox-browser": "1.12.0"
   },
   "overrides": {
+    "adm-zip": "0.6.0",
     "@askjo/camofox-browser": {
       "camoufox-js": "0.11.1",
       "playwright-core": "1.61.0"
