@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 RUN npm config set registry https://registry.npmjs.org/ \
@@ -8,7 +8,7 @@ COPY src ./src
 RUN npm run build
 RUN npm prune --omit=dev --no-audit --no-fund
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl dumb-init \
     fonts-liberation fonts-noto-color-emoji \
