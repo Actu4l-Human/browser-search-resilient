@@ -1,6 +1,6 @@
 {
   "name": "resilient-browser-search-camofox-runtime",
-  "version": "1.11.2",
+  "version": "1.12.0",
   "private": true,
   "dependencies": {
     "@askjo/camofox-browser": "1.12.0"

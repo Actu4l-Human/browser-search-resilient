@@ -30,7 +30,7 @@
     "test:coverage": "npm run typecheck && node --import tsx --test --experimental-test-coverage --test-coverage-lines=70 --test-coverage-functions=70 --test-coverage-branches=70 tests/*.test.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/fastify": "2.0.0-beta.2",
+    "@modelcontextprotocol/fastify": "2.0.0-beta.3",
     "@modelcontextprotocol/node": "2.0.0-beta.3",
     "@modelcontextprotocol/server": "2.0.0-beta.3",
     "cloakbrowser": "0.4.10",
