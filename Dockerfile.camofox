@@ -119,12 +119,12 @@ RUN set -eux; \
 
 # Apply compatibility fixes only to Camofox's server.js.
 #
-# Fix 1:
-#   VirtualDisplay.get() returns a Promise in this dependency combination.
+# Fix 1 (virtual display await — resolved upstream in v1.12.0):
+#   VirtualDisplay.get() already returns a Promise in this release; no patch
+#   needed.
 #
-# Fix 2:
-#   Camoufox rejects Playwright viewport metadata containing isMobile.
-#   Use the real Xvfb display rather than Playwright viewport emulation.
+# Fix 2 (Camofox context viewport — resolved upstream in v1.12.0):
+#   server.js already uses viewport: null; no patch needed.
 #
 # Fix 3:
 #   Some reporter versions do not export resetNativeMemBaseline().
@@ -157,20 +157,6 @@ function replaceExactly(name, before, after, expectedCount) {
 }
 
 replaceExactly(
-  "virtual display await",
-  "vdDisplay = localVirtualDisplay.get();",
-  "vdDisplay = await localVirtualDisplay.get();",
-  1
-);
-
-replaceExactly(
-  "Camofox context viewport",
-  "viewport: { width: 1280, height: 720 },",
-  "viewport: null,",
-  2
-);
-
-replaceExactly(
   "optional reporter reset",
   "reporter.resetNativeMemBaseline();",
   "reporter.resetNativeMemBaseline?.();",
@@ -198,13 +184,9 @@ RUN set -eux; \
     sha256sum --check /tmp/playwright-core.sha256; \
     rm -f /tmp/playwright-core.sha256; \
     \
-    test "$(grep -Fc 'vdDisplay = await localVirtualDisplay.get();' "${SERVER_FILE}")" -eq 1; \
-    test "$(grep -Fc 'viewport: null,' "${SERVER_FILE}")" -eq 2; \
     test "$(grep -Fc 'reporter.resetNativeMemBaseline?.();' "${SERVER_FILE}")" -eq 1; \
     test "$(grep -Fc 'testContext = await browser.newContext({ viewport: null });' "${SERVER_FILE}")" -eq 1; \
     \
-    ! grep -Fq 'vdDisplay = localVirtualDisplay.get();' "${SERVER_FILE}"; \
-    ! grep -Fq 'viewport: { width: 1280, height: 720 },' "${SERVER_FILE}"; \
     ! grep -Fq 'reporter.resetNativeMemBaseline();' "${SERVER_FILE}"; \
     ! grep -Fq 'testContext = await browser.newContext();' "${SERVER_FILE}"; \
     \
