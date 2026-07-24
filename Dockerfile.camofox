@@ -2,7 +2,7 @@
 
 FROM node:26-bookworm-slim
 
-ARG CAMOFOX_VERSION=1.12.0
+ARG CAMOFOX_VERSION=1.13.0
 
 # Pinned Camoufox browser build, expressed as the version string camoufox-js'
 # resolver writes to version.json (installedVerStr()): "<firefox>-<release>".
