@@ -52,7 +52,9 @@ RUN apt-get update \
         ca-certificates \
         curl \
         unzip \
-        python3-minimal \
+        python3 \
+        make \
+        g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the complete Camofox runtime from a lockfile. The lock pins the
@@ -68,31 +70,11 @@ RUN npm config set registry https://registry.npmjs.org/ \
     && ln -s /opt/camofox/node_modules/@askjo/camofox-browser/bin/camofox-browser.js /usr/local/bin/camofox-browser \
     && npm cache clean --force
 
-# camoufox-js@0.11.1 does not filter prereleases when selecting a browser
-# asset. Patch its release selector to skip prerelease GitHub releases so that
-# only proper stable releases (e.g. v152.0.4-beta.28) are considered. This
-# guards against future prerelease regressions like the v152.0.2-alpha asset
-# that shipped only fonts with no browser binary.
-RUN node - node_modules/camoufox-js/dist/pkgman.js <<'NODE'
-const fs = require("node:fs");
+# better-sqlite3 is compiled during npm ci; compilers and Python are not
+# needed by the resulting runtime module.
+RUN apt-get purge --yes --auto-remove g++ make python3 \
+    && rm -rf /var/lib/apt/lists/*
 
-const file = process.argv[2];
-const source = fs.readFileSync(file, "utf8");
-
-const before = "for (const release of releases) {";
-const after = "for (const release of releases.filter((release) => !release.prerelease)) {";
-const count = source.split(before).length - 1;
-
-if (count !== 1) {
-  throw new Error(
-    `camoufox-js release-loop patch: expected 1 occurrence, found ${count}. ` +
-    `The pinned camoufox-js source may have changed.`
-  );
-}
-
-fs.writeFileSync(file, source.split(before).join(after));
-console.log("camoufox-js: skip prerelease releases when selecting a browser asset");
-NODE
 
 # Fail the image build if Camoufox was not downloaded successfully.
 #

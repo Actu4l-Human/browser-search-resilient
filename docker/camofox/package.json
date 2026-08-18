@@ -9,7 +9,6 @@
     "brace-expansion": "5.0.9",
     "adm-zip": "0.6.0",
     "@askjo/camofox-browser": {
-      "camoufox-js": "0.11.1",
       "playwright-core": "1.61.0"
     },
     "swagger-jsdoc": {
