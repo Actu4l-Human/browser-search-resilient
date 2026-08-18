@@ -206,8 +206,8 @@ services:
       context: .
       dockerfile: Dockerfile.camofox
       args:
-        CAMOFOX_VERSION: 1.13.0
-    image: actualhuman/camofox-browser:1.13.0-patched
+        CAMOFOX_VERSION: 1.13.1
+    image: actualhuman/camofox-browser:1.13.1-patched
     restart: unless-stopped
 
     depends_on:

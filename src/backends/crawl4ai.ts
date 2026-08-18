@@ -76,7 +76,7 @@ async function callCrawl4ai(url: string, maxCharacters: number, includeLinks: bo
     }),
   });
 
-  let payload: unknown = undefined;
+  let payload: unknown;
   try {
     payload = await response.json();
   } catch {
