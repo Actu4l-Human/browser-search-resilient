@@ -39,7 +39,7 @@
     "parse5": "^8.0.1",
     "playwright-core": "1.62.0",
     "socks-proxy-agent": "10.1.0",
-    "unpdf": "1.8.0",
+    "unpdf": "1.8.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
