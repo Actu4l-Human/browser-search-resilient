@@ -23,6 +23,7 @@ const cliSchema = z.object({
   config: z.string().optional(),
   run: z.string().optional(),
   out: z.string().optional(),
+  engine: z.enum(['camofox', 'cloakbrowser', 'obscura', 'scrapling']).optional(),
   'base-url': z.string().optional(),
   'compose-template': z.string().optional(),
   'no-build': z.boolean().optional(),
@@ -109,12 +110,12 @@ function parseArgs(argv) {
   const out = { command };
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
-    if (!arg.startsWith('--')) throw new Error(`unexpected argument ${arg}`);
     const next = rest[index + 1];
     switch (arg) {
       case '--config':
       case '--run':
       case '--out':
+      case '--engine':
       case '--base-url':
       case '--compose-template':
         if (!next || next.startsWith('--')) throw new Error(`missing value for ${arg}`);
@@ -1644,7 +1645,7 @@ async function measureRun({ runDir, baseUrl, token }) {
   return rows;
 }
 
-async function diagnoseRun({ runDir, baseUrl, token }) {
+async function diagnoseRun({ runDir, baseUrl, token, engine = null }) {
   runDir = resolve(runDir);
   const manifest = JSON.parse(await readFile(manifestPaths(runDir).manifest, 'utf8'));
   const benchmark = manifest.benchmark;
@@ -1653,8 +1654,8 @@ async function diagnoseRun({ runDir, baseUrl, token }) {
   const selectedByProfile = new Map(selectedConfigs.map((row) => [row.profile, row]));
   const rows = [];
   const blockers = [];
-
-  for (const spec of diagnosticTrackSpecs()) {
+  const specs = diagnosticTrackSpecs().filter((spec) => !engine || spec.backend === engine);
+  for (const spec of specs) {
     const selected = selectedByProfile.get(spec.profile);
     if (!selected) {
       blockers.push({ ...spec, reason: `missing selected config for ${spec.profile}` });
@@ -1687,7 +1688,7 @@ async function diagnoseRun({ runDir, baseUrl, token }) {
     sampleCount: rows.length,
     blockerCount: blockers.length,
     blockers,
-    tracks: diagnosticTrackSpecs().map((spec) => ({
+    tracks: specs.map((spec) => ({
       ...spec,
       selectedConfigId: selectedByProfile.get(spec.profile)?.configId ?? null,
       caps: diagnosticTrackCaps(spec.backend),
@@ -1794,7 +1795,7 @@ async function main() {
   }
   if (args.command === 'diagnose') {
     if (!args.run) throw new Error('diagnose requires --run');
-    await diagnoseRun({ runDir: resolve(args.run), baseUrl: args['base-url'] ?? 'http://127.0.0.1:18088', token: process.env.BROWSER_SEARCH_API_KEY ?? '' });
+    await diagnoseRun({ runDir: resolve(args.run), baseUrl: args['base-url'] ?? 'http://127.0.0.1:18088', token: process.env.BROWSER_SEARCH_API_KEY ?? '', engine: args.engine ?? null });
     return;
   }
   if (args.command === 'report') {
