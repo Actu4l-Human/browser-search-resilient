@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { health, webFetch, webResearch, webSearch } from './orchestrator.js';
-import { fetchInputSchema, researchInputSchema, searchInputSchema } from './schemas.js';
+import { fetchInputSchema, researchInputSchema, searchInputSchema, toFetchOptions, toResearchOptions, toSearchOptions } from './schemas.js';
 import { metrics } from './util/metrics.js';
 
 function result(value: unknown) {
@@ -21,9 +21,9 @@ export function createServer(): McpServer {
         'Search the public web through SearXNG. If the search service is unavailable or blocked, retry through the deterministic browser fallback chain.',
       inputSchema: searchInputSchema,
     },
-    async (input: any) => {
+    async (input: z.infer<typeof searchInputSchema>) => {
       metrics.recordTool('web_search');
-      return result(await webSearch(input.query, input));
+      return result(await webSearch(input.query, toSearchOptions(input)));
     },
   );
 
@@ -31,12 +31,12 @@ export function createServer(): McpServer {
     'web_fetch',
     {
       description:
-        'Retrieve a public URL. Auto mode uses direct HTTP first, optional Crawl4AI Markdown extraction when configured, Camofox for JavaScript or challenge pages, and CloakBrowser as the final fallback. Authentication, paywalls, policy denials, and unresolved human verification are not bypassed.',
+        'Retrieve a public URL. Auto mode uses direct HTTP first, optional Crawl4AI Markdown extraction when configured, Camofox for JavaScript or challenge pages, and CloakBrowser as the final fallback. Obscura is an experimental, explicitly selected backend and is not part of the auto chain. Authentication, paywalls, policy denials, and unresolved human verification are not bypassed.',
       inputSchema: fetchInputSchema,
     },
-    async (input: any) => {
+    async (input: z.infer<typeof fetchInputSchema>) => {
       metrics.recordTool('web_fetch');
-      return result(await webFetch(input.url, input));
+      return result(await webFetch(input.url, toFetchOptions(input)));
     },
   );
 
@@ -47,9 +47,9 @@ export function createServer(): McpServer {
         'Search, retrieve, and return multiple public sources with complete backend attempt history for source-grounded agent research.',
       inputSchema: researchInputSchema,
     },
-    async (input: any) => {
+    async (input: z.infer<typeof researchInputSchema>) => {
       metrics.recordTool('web_research');
-      return result(await webResearch(input.query, input));
+      return result(await webResearch(input.query, toResearchOptions(input)));
     },
   );
 
@@ -57,7 +57,7 @@ export function createServer(): McpServer {
     'web_health',
     {
       description:
-        'Check the orchestrator and its SearXNG, optional Crawl4AI, Camofox, egress proxy, and CloakBrowser backends. Deep mode launches enabled browser extraction backends against example.com.',
+        'Check the orchestrator, selected stack profile, SearXNG, Crawl4AI, Camofox, egress proxy, CloakBrowser, Obscura, and Scrapling backends. Deep mode launches enabled browser extraction backends against example.com.',
       inputSchema: z.object({ deep: z.boolean().default(false) }),
     },
     async ({ deep }: { deep: boolean }) => {

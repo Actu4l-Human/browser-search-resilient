@@ -13,7 +13,7 @@ export const searchInputSchema = z.object({
 
 export const fetchInputSchema = z.object({
   url: z.string().url(),
-  backend: z.enum(['auto', 'direct', 'crawl4ai', 'camofox', 'cloakbrowser']).default('auto'),
+  backend: z.enum(['auto', 'direct', 'crawl4ai', 'camofox', 'cloakbrowser', 'obscura', 'scrapling']).default('auto'),
   maxCharacters: z.number().int().min(1000).max(200000).default(50000),
   includeLinks: z.boolean().default(true),
   query: z.string().min(1).max(2000).optional(),

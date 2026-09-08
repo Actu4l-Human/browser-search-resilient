@@ -2,15 +2,18 @@
 
 FROM node:26-bookworm-slim
 
-ARG CAMOFOX_VERSION=1.13.1
+ARG CAMOFOX_VERSION=1.14.0
 
 # Pinned Camoufox browser build, expressed as the version string camoufox-js'
 # resolver writes to version.json (installedVerStr()): "<firefox>-<release>".
-# This is the asset daijro/camoufox GitHub release tag v152.0.4-beta.28 ships
-# (asset camoufox-152.0.4-beta.28-lin.x86_64.zip). `camoufox-js fetch` has no
-# version flag, so the build instead asserts this exact value and fails if a
-# different browser is selected, pinning the binary for reproducible images.
-ARG CAMOUFOX_BROWSER_VERSION=152.0.4-beta.28
+# The browser is installed using camoufox-js' resolver layout in INSTALL_DIR
+# (default ~/.cache/camoufox). We download the exact GitHub release archive,
+# verify its SHA-256, extract with CamoufoxFetcher.extractZip(), then write the
+# resolver's version.json and validate installedVerStr()/launchPath().
+ARG CAMOUFOX_BROWSER_VERSION=152.0.4-beta.30
+ARG CAMOUFOX_BROWSER_URL=https://github.com/daijro/camoufox/releases/download/v152.0.4-beta.30/camoufox-152.0.4-beta.30-lin.x86_64.zip
+ARG CAMOUFOX_BROWSER_SHA256=5720d45b894ce1770543de024c6f10d514b38be560fa2dc3226b3d8586caf672
+ARG CAMOUFOX_BROWSER_ASSET_ID=538708879
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
@@ -58,13 +61,15 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the complete Camofox runtime from a lockfile. The lock pins the
-# server package and the Camoufox/Playwright versions that the compatibility
-# patch below was validated against.
+# server package and the Camoufox/Playwright versions used by the upstream 1.14
+# release.
 WORKDIR /opt/camofox
 COPY docker/camofox/package.json docker/camofox/package-lock.json ./
 RUN npm config set registry https://registry.npmjs.org/ \
     && CAMOFOX_SKIP_DOWNLOAD=1 npm ci --omit=dev --no-audit --no-fund \
     && test "$(node -p "require('./node_modules/@askjo/camofox-browser/package.json').version")" = "${CAMOFOX_VERSION}" \
+    && test "$(node -p "require('./node_modules/playwright-core/package.json').version")" = "1.63.0" \
+    && test "$(node -p "require('./node_modules/camoufox-js/package.json').version")" = "0.11.5" \
     && mkdir -p /usr/local/lib/node_modules/@askjo \
     && ln -s /opt/camofox/node_modules/@askjo/camofox-browser /usr/local/lib/node_modules/@askjo/camofox-browser \
     && ln -s /opt/camofox/node_modules/@askjo/camofox-browser/bin/camofox-browser.js /usr/local/bin/camofox-browser \
@@ -75,106 +80,33 @@ RUN npm config set registry https://registry.npmjs.org/ \
 RUN apt-get purge --yes --auto-remove g++ make python3 \
     && rm -rf /var/lib/apt/lists/*
 
-
-# Fail the image build if Camoufox was not downloaded successfully.
-#
-# CAMOFOX_SKIP_DOWNLOAD=1 above skips the @askjo/camofox-browser postinstall
-# download so the npm ci layer stays small and cacheable; this step fetches the
-# browser in its own layer. camoufox-js installs into its default per-user
-# cache (~/.cache/camoufox), and the server resolves the browser from there at
-# runtime, so no CAMOUFOX_INSTALL_DIR override is needed. Validate through
-# camoufox-js' own resolver (launchPath/installedVerStr throw if the binary or
-# version.json are missing) rather than a hard-coded path.
-RUN set -eux; \
-    npx --yes camoufox-js fetch; \
-    node --input-type=module -e "import { launchPath, installedVerStr } from 'camoufox-js/dist/pkgman.js'; const expected = '${CAMOUFOX_BROWSER_VERSION}'; const actual = installedVerStr(); if (actual !== expected) { console.error('Camoufox version drift: expected ' + expected + ' but fetched ' + actual + '. Re-pin CAMOUFOX_BROWSER_VERSION (and re-check the release selector patch) if this is intentional.'); process.exit(1); } const executable = launchPath(); console.log('Camoufox ' + actual + ' (pinned) ' + executable);"
-
-# Record the Playwright bundle checksum before patching. The compatibility
-# patch below must never modify Playwright internals.
+# Validate the shipped upstream module instead of patching it. v1.14.0 already
+# contains the viewport:null test context and the reporter reset hook.
 RUN set -eux; \
     CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
     CAMOFOX_REAL_DIR="$(readlink -f "${CAMOFOX_DIR}")"; \
-    PLAYWRIGHT_PACKAGE="$(node -p "require.resolve('playwright-core/package.json', { paths: ['${CAMOFOX_REAL_DIR}'] })")"; \
-    PLAYWRIGHT_FILE="$(dirname "${PLAYWRIGHT_PACKAGE}")/lib/coreBundle.js"; \
-    test -f "${PLAYWRIGHT_FILE}"; \
-    sha256sum "${PLAYWRIGHT_FILE}" > /tmp/playwright-core.sha256
-
-# Apply compatibility fixes only to Camofox's server.js.
-#
-# Fix 1 (virtual display await — resolved upstream in v1.12.0):
-#   VirtualDisplay.get() already returns a Promise in this release; no patch
-#   needed.
-#
-# Fix 2 (Camofox context viewport — resolved upstream in v1.12.0):
-#   server.js already uses viewport: null; no patch needed.
-#
-# Fix 3:
-#   Some reporter versions do not export resetNativeMemBaseline().
-#
-# Fix 4:
-#   The periodic health probe calls browser.newContext() without options,
-#   causing Playwright to inject its default viewport and isMobile=false.
-RUN set -eux; \
-    CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
-    SERVER_FILE="${CAMOFOX_DIR}/server.js"; \
+    SERVER_FILE="${CAMOFOX_REAL_DIR}/server.js"; \
+    REPORTER_FILE="${CAMOFOX_REAL_DIR}/lib/reporter.js"; \
     test -f "${SERVER_FILE}"; \
-    node - "${SERVER_FILE}" <<'NODE'
-const fs = require("node:fs");
+    test -f "${REPORTER_FILE}"; \
+    grep -Fq 'testContext = await browser.newContext({ viewport: null });' "${SERVER_FILE}"; \
+    grep -Fq 'resetNativeMemBaseline: () => {}' "${REPORTER_FILE}"; \
+    grep -Fq 'resetNativeMemBaseline,' "${REPORTER_FILE}"; \
+    node --check "${SERVER_FILE}"
 
-const file = process.argv[2];
-let source = fs.readFileSync(file, "utf8");
-
-function replaceExactly(name, before, after, expectedCount) {
-  const count = source.split(before).length - 1;
-
-  if (count !== expectedCount) {
-    throw new Error(
-      `${name}: expected ${expectedCount} occurrence(s), found ${count}. ` +
-      `The pinned Camofox source may have changed.`
-    );
-  }
-
-  source = source.split(before).join(after);
-  console.log(`${name}: patched ${count} occurrence(s)`);
-}
-
-replaceExactly(
-  "optional reporter reset",
-  "reporter.resetNativeMemBaseline();",
-  "reporter.resetNativeMemBaseline?.();",
-  1
-);
-
-replaceExactly(
-  "active health-probe viewport",
-  "testContext = await browser.newContext();",
-  "testContext = await browser.newContext({ viewport: null });",
-  1
-);
-
-fs.writeFileSync(file, source);
-
-console.log(`Patched ${file}`);
-NODE
-
-# Verify every intended patch, verify the old code is gone, and prove that the
-# Playwright bundle was not modified.
+# Install the pinned Camoufox archive using the same resolver layout as
+# camoufox-js. The asset is checked before extraction and the version file is
+# written exactly as the resolver would.
 RUN set -eux; \
-    CAMOFOX_DIR="$(npm root --global)/@askjo/camofox-browser"; \
-    SERVER_FILE="${CAMOFOX_DIR}/server.js"; \
-    \
-    sha256sum --check /tmp/playwright-core.sha256; \
-    rm -f /tmp/playwright-core.sha256; \
-    \
-    test "$(grep -Fc 'reporter.resetNativeMemBaseline?.();' "${SERVER_FILE}")" -eq 1; \
-    test "$(grep -Fc 'testContext = await browser.newContext({ viewport: null });' "${SERVER_FILE}")" -eq 1; \
-    \
-    ! grep -Fq 'reporter.resetNativeMemBaseline();' "${SERVER_FILE}"; \
-    ! grep -Fq 'testContext = await browser.newContext();' "${SERVER_FILE}"; \
-    \
-    node --check "${SERVER_FILE}"; \
-    \
-    echo "Camofox compatibility patches verified successfully."
+    curl -fsSLo /tmp/camoufox.zip "${CAMOUFOX_BROWSER_URL}"; \
+    echo "${CAMOUFOX_BROWSER_SHA256}  /tmp/camoufox.zip" | sha256sum --check --status; \
+    node --input-type=module -e "import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process'; import { CamoufoxFetcher, INSTALL_DIR, installedVerStr, launchPath } from 'camoufox-js/dist/pkgman.js'; const expected = '${CAMOUFOX_BROWSER_VERSION}'; const fetcher = new CamoufoxFetcher(); if (fetcher.arch !== 'x86_64') { throw new Error('Unsupported Camoufox architecture ' + fetcher.arch + '; expected x86_64.'); } CamoufoxFetcher.cleanup(); fs.mkdirSync(INSTALL_DIR, { recursive: true }); await fetcher.extractZip('/tmp/camoufox.zip'); fs.writeFileSync(path.join(INSTALL_DIR.toString(), 'version.json'), JSON.stringify({ version: '152.0.4', release: 'beta.30' })); if (process.platform !== 'win32') { execFileSync('chmod', ['-R', '755', INSTALL_DIR.toString()]); } const actual = installedVerStr(); if (actual !== expected) { throw new Error('Camoufox version drift: expected ' + expected + ' but installed ' + actual + '.'); } const executable = launchPath(); if (!fs.existsSync(executable)) { throw new Error('Camoufox executable missing at ' + executable + '.'); } console.log('Camoufox ' + actual + ' installed at ' + executable + ' (asset 538708879)');" \
+    && rm -f /tmp/camoufox.zip
+# Preload the GeoIP database and the default UBO addon into the same resolver
+# cache layout the upstream launcher reads at runtime. This preserves the
+# isolated runtime network while preventing launch-time fetches.
+RUN set -eux; \
+    node --input-type=module -e "import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process'; import { INSTALL_DIR, CamoufoxFetcher, installedVerStr, launchPath } from 'camoufox-js/dist/pkgman.js'; import { downloadMMDB } from 'camoufox-js/dist/locale.js'; import { addDefaultAddons } from 'camoufox-js/dist/addons.js'; const fetcher = new CamoufoxFetcher(); if (fetcher.arch !== 'x86_64') { throw new Error('Unsupported Camoufox architecture ' + fetcher.arch + '; expected x86_64.'); } await downloadMMDB(); await addDefaultAddons([], []); const mmdb = path.join(INSTALL_DIR.toString(), 'GeoLite2-City.mmdb'); const addonManifest = path.join(INSTALL_DIR.toString(), 'addons', 'UBO', 'manifest.json'); if (!fs.existsSync(mmdb)) { throw new Error('GeoIP database missing at ' + mmdb + '.'); } if (!fs.existsSync(addonManifest)) { throw new Error('UBO addon missing at ' + addonManifest + '.'); } if (process.platform !== 'win32') { execFileSync('chmod', ['-R', '755', INSTALL_DIR.toString()]); } const expected = '${CAMOUFOX_BROWSER_VERSION}'; const actual = installedVerStr(); if (actual !== expected) { throw new Error('Camoufox version drift: expected ' + expected + ' but installed ' + actual + '.'); } const executable = launchPath(); if (!fs.existsSync(executable)) { throw new Error('Camoufox executable missing at ' + executable + '.'); } console.log('Preloaded GeoIP and UBO for Camoufox ' + actual + ' at ' + INSTALL_DIR.toString());"
 
 EXPOSE 9377
 

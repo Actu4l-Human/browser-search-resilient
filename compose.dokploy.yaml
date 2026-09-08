@@ -206,29 +206,23 @@ services:
       context: .
       dockerfile: Dockerfile.camofox
       args:
-        CAMOFOX_VERSION: 1.13.1
-    image: actualhuman/camofox-browser:1.13.1-patched
+        CAMOFOX_VERSION: 1.14.0
+    image: actualhuman/camofox-browser:1.14.0-local
     restart: unless-stopped
-
     depends_on:
       egress-proxy:
         condition: service_healthy
-
     environment:
       CAMOFOX_API_KEY: ${CAMOFOX_API_KEY:?Set CAMOFOX_API_KEY}
       CAMOFOX_CRASH_REPORT_ENABLED: "false"
       CAMOFOX_HOST: 0.0.0.0
       CAMOFOX_PORT: 9377
-
       PROXY_STRATEGY: round_robin
       PROXY_HOST: egress-proxy
       PROXY_PORT: 3128
-
     volumes:
       - camofox-data:/root/.camofox
-
     shm_size: 1gb
-
     healthcheck:
       test:
         - CMD-SHELL
@@ -237,16 +231,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 45s
-
     security_opt:
       - no-new-privileges:true
-
     pids_limit: 256
     mem_limit: 2g
     cpus: 2
-
     networks:
-      camofox-control:
+      - camofox-control
 
 networks:
   camofox-control:

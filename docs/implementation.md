@@ -32,13 +32,16 @@ The sidecar is connected only to `crawl4ai-control`. Its browser traffic uses `C
 
 Camofox is connected only to the internal `camofox-control` network. It has no direct Docker network with internet routing. Its configured HTTP proxy is `egress-proxy:3128`, which validates and DNS-pins every ordinary HTTP request and HTTPS `CONNECT` destination.
 
-The Camofox image fetches the Camoufox browser via a dedicated `camoufox-js fetch` build step into camoufox-js' default per-user cache and validates the executable through `camoufox-js`' own resolver. The server resolves the browser from the same cache at runtime. Because the newest `daijro/camoufox` release (`v152.0.2-alpha`, a GitHub prerelease) ships a fonts-only archive with no browser binary, the image patches `camoufox-js` to skip prereleases when selecting the asset, so `fetch` installs the latest usable non-prerelease (`v150.0.2-beta.25`). Revisit once `camoufox-js` filters prereleases upstream or a usable stable asset is republished.
-
 The orchestrator and Camofox still share a control network so the orchestrator can call the Camofox REST API. Set `BROWSER_SEARCH_API_KEY` so browser-originated traffic cannot invoke the orchestrator's MCP or REST tools without the bearer secret.
 
 ## CloakBrowser isolation
 
-CloakBrowser defaults to `http://egress-proxy:3128`. This preserves the host's normal residential WAN egress while preventing a second browser DNS lookup from bypassing the URL validator through DNS rebinding. Set `CLOAK_GEOIP=false` for this local filtering proxy and configure timezone/locale explicitly.
+CloakBrowser defaults to `http://egress-proxy:3128`. This preserves the host's normal residential WAN egress while preventing a second browser DNS lookup from bypassing the URL validator through DNS rebinding. Set `CLOAK_GEOIP=false` for this local filtering proxy and configure timezone/locale explicitly. The default build uses a keyless Linux x64 browser; when `CLOAKBROWSER_LICENSE_KEY` is configured, the installed CLI may switch to an entitled Pro binary. That selection does not change the proxy boundary.
+
+## Experimental comparison harness
+
+The comparison harness lives under `experiments/compare/`; raw manifests, request rows, resources, and summaries are written to `experiments/compare/results/`. Run the CLI from the repository root with `npm run compare -- <prepare|tune|measure|diagnose|report|all> ...` and the frozen benchmark at `experiments/compare/benchmark.json` when producing the fair comparison run.
+
 
 ## Remaining trust assumptions
 

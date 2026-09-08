@@ -4,10 +4,10 @@ A deterministic MCP and REST service for AI agents that need current public web 
 
 ```text
 web_search: SearXNG → browser search fallback (scrapes a search result page through the fetch chain)
-web_fetch:  direct HTTP → optional Crawl4AI Markdown extraction → Camofox → CloakBrowser
+web_fetch: direct HTTP → optional Crawl4AI Markdown extraction → Camofox → CloakBrowser
 ```
 
-Unlike the upstream skill-only workflow, fallback decisions happen in code. Every response identifies the backend, outcome, elapsed time, and complete attempt history.
+`web_fetch` also supports an experimental, explicit-only `obscura` backend when `OBSCURA_ENABLED=true`; it is disabled by default, never part of auto mode, and any worker-scoped private-network allowance stays inside the Obscura container.
 
 ## Security properties
 
@@ -17,6 +17,7 @@ Unlike the upstream skill-only workflow, fallback decisions happen in code. Ever
 - Crawl4AI is an optional private sidecar for query-aware Markdown extraction and is forced through the same DNS-pinning egress proxy.
 - CloakBrowser uses the same DNS-pinning egress proxy as Camofox and also intercepts browser requests as defense in depth.
 - Camofox has no direct internet network: all of its browser traffic is forced through a DNS-pinning egress proxy that rejects private and metadata destinations.
+- Obscura is experimental, disabled by default, explicit-only; its worker-scoped private-network allowance does not relax public-URL admission or egress/proxy policy checks.
 - No arbitrary JavaScript, cookies, proxy values, credentials, or browser profile paths are accepted from MCP callers.
 - Authentication, subscriptions/paywalls, policy denial, and unresolved human verification are terminal outcomes.
 - Services publish only the orchestrator on `127.0.0.1` by default; SearXNG, Camofox, and the filtering proxy remain private to Docker networks.
@@ -100,24 +101,28 @@ For `web_research`, the service automatically sets `preferCrawl4ai: true` and pa
 | Tool | Purpose |
 |---|---|
 | `web_search` | Search SearXNG and use browser search as a fallback |
-| `web_fetch` | Retrieve a URL with deterministic escalation; supports explicit `backend: "crawl4ai"` and optional `preferCrawl4ai` for richer Markdown |
+| `web_fetch` | Retrieve a URL with deterministic escalation; supports explicit `backend: "crawl4ai"` or `backend: "obscura"` when enabled, plus optional `preferCrawl4ai` for richer Markdown |
 | `web_research` | Search and retrieve several independent sources |
 | `web_health` | Check backend availability; deep mode probes enabled browser/extraction backends |
 
 See `docs/clients.md` for Kilo, OpenCode, and Pydantic Deep configuration.
 
 ## Operational notes
-
 - `CLOAK_PROXY` defaults to the internal `egress-proxy`; do not expose proxy selection to agents. Keep `CLOAK_GEOIP=false` for this local filtering proxy.
-- A CloakBrowser Pro key is optional; set `CLOAKBROWSER_LICENSE_KEY` to use the current Pro binary.
+- A CloakBrowser Pro key is optional; without `CLOAKBROWSER_LICENSE_KEY`, the installed CLI uses the default keyless Linux x64 browser. When a license is present, the CLI may switch to an entitled Pro binary. That choice is separate from proxy and policy checks.
 - `Camofox` crash telemetry is disabled by the supplied Compose configuration.
 - `Crawl4AI` is intentionally exposed only on an internal Docker network. Do not publish the sidecar port or allow MCP callers to send JavaScript, cookies, profile paths, proxy values, or domain-mapping requests.
-- The Camofox Docker image fetches the Camoufox browser via a dedicated `camoufox-js fetch` build step and verifies it through `camoufox-js`' own resolver. The browser lives in camoufox-js' default per-user cache and is resolved from there at runtime. The image patches `camoufox-js` to skip GitHub prereleases, because the newest `daijro/camoufox` prerelease ships a fonts-only archive with no browser binary.
+- Obscura is disabled by default (`OBSCURA_ENABLED=false`) and is never part of the auto chain; select it explicitly with `backend: "obscura"` only for the pinned experiment. Any private-network allowance in the lab compose overlay is scoped to the Obscura worker and does not change public admission or proxy policy.
+- The comparison harness stores manifests, raw request rows, resources, and summaries under `experiments/compare/results/`; use `npm run compare -- all --config experiments/compare/benchmark.json --out experiments/compare/results/<run-id>` from the repo root.
+- Old Obscura evidence under `experiments/obscura/results/` remains preserved for historical comparison.
+- The Camofox Docker image installs the pinned Camoufox browser through `camoufox-js` and validates the executable through the resolver at runtime.
 - SearXNG is an unmodified sidecar. Review and tune its engines for your network and acceptable-use requirements.
 - The orchestrator binds to `127.0.0.1` by default; the Compose override publishes it on the host loopback. Set `HOST` explicitly and always set `BROWSER_SEARCH_API_KEY` when binding a non-loopback address.
 - Optional features, all off by default: response caching (`CACHE_ENABLED`), per-peer rate limiting (`RATE_LIMIT_RPM` / `RATE_LIMIT_BURST`), and robots.txt enforcement (`ROBOTS_ENABLED`). Behind LiteLLM, multiple agents may share one peer address.
 - PDF responses (`application/pdf`) are extracted to text by the direct backend.
 - OpenMetrics are exposed at `/metrics`.
+
+Auto mode remains unchanged: direct HTTP → optional Crawl4AI → Camofox → CloakBrowser.
 
 ## Create a safe source archive
 

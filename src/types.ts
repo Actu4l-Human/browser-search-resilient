@@ -1,4 +1,4 @@
-export type BackendName = 'direct' | 'crawl4ai' | 'camofox' | 'cloakbrowser';
+export type BackendName = 'direct' | 'crawl4ai' | 'camofox' | 'cloakbrowser' | 'obscura' | 'scrapling';
 
 export type FetchOutcome =
   | 'success'
@@ -33,6 +33,8 @@ export interface FetchAttempt {
   reason?: string;
   truncated?: boolean;
   challenge?: string;
+  timedOut?: boolean;
+  cleanupUnconfirmed?: boolean;
 }
 
 export interface FetchResponse {

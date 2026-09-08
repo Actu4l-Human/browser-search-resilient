@@ -5,6 +5,9 @@ import { fetchCamofox } from './backends/camofox.js';
 import { fetchCrawl4ai } from './backends/crawl4ai.js';
 import { fetchCloakBrowser } from './backends/cloakbrowser.js';
 import { fetchDirect } from './backends/direct.js';
+import { fetchObscura } from './backends/obscura.js';
+import { fetchScrapling } from './backends/scrapling.js';
+import { stackProfileChains } from './stack-profiles.js';
 import { allowedByDomain, searchSearxng } from './search/searxng.js';
 import { parsePublicUrl } from './security/url.js';
 import type {
@@ -31,7 +34,8 @@ const researchSemaphore = new Semaphore(config.researchConcurrency);
 const fetchCache = config.cacheEnabled ? new TtlCache<string, FetchResponse>(config.cacheTtlMs, config.cacheMaxEntries) : undefined;
 const searchCache = config.cacheEnabled ? new TtlCache<string, SearchResponse>(config.cacheTtlMs, config.cacheMaxEntries) : undefined;
 
-export { inFlight };
+export { inFlight, log };
+
 
 function normalizeMaxCharacters(value?: number): number {
   return Math.max(1_000, Math.min(value ?? config.defaultMaxCharacters, config.maxMaxCharacters));
@@ -48,13 +52,30 @@ async function runBackend(
   const started = performance.now();
   try {
     if (backend === 'direct') return await fetchDirect(url, maxCharacters, includeLinks);
+
     const semaphore = reserve === 'health' ? healthSemaphore : browserSemaphore;
-    const operation =
-      backend === 'crawl4ai'
-        ? () => fetchCrawl4ai(url, maxCharacters, includeLinks, query)
-        : backend === 'camofox'
-          ? () => fetchCamofox(url, maxCharacters, includeLinks)
-          : () => fetchCloakBrowser(url, maxCharacters, includeLinks);
+    let operation: () => Promise<FetchAttempt>;
+    switch (backend) {
+      case 'crawl4ai':
+        operation = () => fetchCrawl4ai(url, maxCharacters, includeLinks, query);
+        break;
+      case 'camofox':
+        operation = () => fetchCamofox(url, maxCharacters, includeLinks);
+        break;
+      case 'cloakbrowser':
+        operation = () => fetchCloakBrowser(url, maxCharacters, includeLinks);
+        break;
+      case 'obscura':
+        operation = () => fetchObscura(url, maxCharacters, includeLinks);
+        break;
+      case 'scrapling':
+        operation = () => fetchScrapling(url, maxCharacters, includeLinks);
+        break;
+      default: {
+        const unexpected: never = backend;
+        throw new Error(`Unsupported backend ${unexpected}`);
+      }
+    }
     return await semaphore.run(operation, (waitMs) => metrics.observeSemaphoreWait(reserve, waitMs));
   } finally {
     metrics.observeBackendDuration(backend, performance.now() - started);
@@ -67,18 +88,22 @@ function fetchCacheKey(url: string, maxCharacters: number, includeLinks: boolean
     maxCharacters,
     includeLinks,
     backend: requested,
+    stackProfile: config.fetchStackProfile,
     query: options.query ?? '',
     preferCrawl4ai: options.preferCrawl4ai ?? false,
   });
 }
 
 function autoBackendChain(): BackendName[] {
-  return [
-    'direct',
-    ...(config.crawl4aiEnabled ? ['crawl4ai' as const] : []),
-    'camofox',
-    ...(config.cloakEnabled ? ['cloakbrowser' as const] : []),
-  ];
+  if (config.fetchStackProfile === 'baseline') {
+    return [
+      'direct',
+      ...(config.crawl4aiEnabled ? ['crawl4ai' as const] : []),
+      'camofox',
+      ...(config.cloakEnabled ? ['cloakbrowser' as const] : []),
+    ];
+  }
+  return [...stackProfileChains[config.fetchStackProfile]];
 }
 
 async function webFetchImpl(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
@@ -294,40 +319,75 @@ async function serviceCheck(url: string, headers?: Record<string, string>): Prom
     return `error:${error instanceof Error ? error.message : String(error)}`;
   }
 }
-
 export async function health(deep = false): Promise<Record<string, unknown>> {
+  const requiredBackends = autoBackendChain();
+  const requiredServices = requiredBackends.filter((backend): backend is Exclude<BackendName, 'direct'> => backend !== 'direct');
   const checks: Record<string, unknown> = {
     service: 'ok',
+    stackProfile: config.fetchStackProfile,
+    requiredBackends,
+    requiredServices,
     crawl4aiEnabled: config.crawl4aiEnabled,
+    camofoxEnabled: config.camofoxEnabled,
     cloakEnabled: config.cloakEnabled,
+    obscuraEnabled: config.obscuraEnabled,
+    scraplingEnabled: config.scraplingEnabled,
   };
   const started = Date.now();
   const searxUrl = `${config.searxngUrl.replace(/\/$/, '')}/`;
   const camofoxUrl = `${config.camofoxUrl.replace(/\/$/, '')}/health`;
   const egressUrl = `${config.egressProxyUrl.replace(/\/$/, '')}/healthz`;
   const crawl4aiUrl = `${config.crawl4aiUrl.replace(/\/$/, '')}/healthz`;
-  const [searxng, camofox, egressProxy, crawl4ai] = await Promise.all([
+  const obscuraUrl = `${config.obscuraUrl.replace(/\/$/, '')}/json/version`;
+  const scraplingUrl = `${config.scraplingUrl.replace(/\/$/, '')}/healthz`;
+  const [searxng, camofox, egressProxy, crawl4ai, obscura, scrapling] = await Promise.all([
     serviceCheck(searxUrl, { 'X-Forwarded-For': '127.0.0.1', 'X-Real-IP': '127.0.0.1' }),
     serviceCheck(camofoxUrl),
     serviceCheck(egressUrl),
-    config.crawl4aiEnabled ? serviceCheck(crawl4aiUrl) : Promise.resolve('disabled'),
+    serviceCheck(crawl4aiUrl),
+    serviceCheck(obscuraUrl),
+    serviceCheck(scraplingUrl),
   ]);
   checks.searxng = searxng;
   checks.camofox = camofox;
   checks.egressProxy = egressProxy;
   checks.crawl4ai = crawl4ai;
+  checks.obscura = obscura;
+  checks.scrapling = scrapling;
 
   if (deep && config.crawl4aiEnabled) {
     const result = await runBackend('crawl4ai', 'https://example.com', 2000, false, 'health');
     checks.crawl4ai = result.outcome === 'success' ? 'ok' : (result.reason ?? result.outcome);
   }
 
+  if (deep && config.camofoxEnabled) {
+    const result = await runBackend('camofox', 'https://example.com', 2000, false, 'health');
+    checks.camofox = result.outcome === 'success' ? 'ok' : (result.reason ?? result.outcome);
+  }
+
   if (deep && config.cloakEnabled) {
     const result = await runBackend('cloakbrowser', 'https://example.com', 2000, false, 'health');
     checks.cloakbrowser = result.outcome === 'success' ? 'ok' : (result.reason ?? result.outcome);
   } else checks.cloakbrowser = config.cloakEnabled ? 'configured' : 'disabled';
+
+  if (deep && config.obscuraEnabled) {
+    const result = await runBackend('obscura', 'https://example.com', 2000, false, 'health');
+    checks.obscuraDeep = result.outcome === 'success' ? 'ok' : (result.reason ?? result.outcome);
+  } else if (config.obscuraEnabled) {
+    checks.obscuraDeep = 'configured';
+  } else {
+    checks.obscuraDeep = 'disabled';
+  }
+
+  if (deep && config.scraplingEnabled) {
+    const result = await runBackend('scrapling', 'https://example.com', 2000, false, 'health');
+    checks.scraplingDeep = result.outcome === 'success' ? 'ok' : (result.reason ?? result.outcome);
+  } else if (config.scraplingEnabled) {
+    checks.scraplingDeep = 'configured';
+  } else {
+    checks.scraplingDeep = 'disabled';
+  }
+
   checks.elapsedMs = Date.now() - started;
   return checks;
 }
-
-export { log };

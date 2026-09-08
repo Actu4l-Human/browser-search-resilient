@@ -44,6 +44,13 @@ interface RawResponse {
   finalUrl: string;
 }
 
+class TimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Request timed out after ${timeoutMs}ms`);
+    this.name = 'TimeoutError';
+  }
+}
+
 function requestOnce(url: URL, addresses: ResolvedAddress[], timeoutMs: number, maxBytes: number): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const transport = url.protocol === 'https:' ? https : http;
@@ -88,7 +95,7 @@ function requestOnce(url: URL, addresses: ResolvedAddress[], timeoutMs: number, 
         });
       },
     );
-    request.setTimeout(timeoutMs, () => request.destroy(new Error(`Request timed out after ${timeoutMs}ms`)));
+    request.setTimeout(timeoutMs, () => request.destroy(new TimeoutError(timeoutMs)));
     request.on('error', reject);
     request.end();
   });
@@ -189,6 +196,7 @@ function curateHeaders(headers: IncomingHttpHeaders): Record<string, string> {
 
 export async function fetchDirect(url: string, maxCharacters: number, includeLinks: boolean): Promise<FetchAttempt> {
   const started = performance.now();
+  let timedOut = false;
   try {
     const response = await requestWithSafeRedirects(url);
     const contentType =
@@ -251,6 +259,7 @@ export async function fetchDirect(url: string, maxCharacters: number, includeLin
       truncated: limited.truncated,
     };
   } catch (error) {
+    timedOut = timedOut || error instanceof TimeoutError;
     const robotsDenied = error instanceof Error && error.name === 'RobotsDenied';
     return {
       backend: 'direct',
@@ -258,6 +267,7 @@ export async function fetchDirect(url: string, maxCharacters: number, includeLin
       url,
       elapsedMs: Math.round(performance.now() - started),
       reason: error instanceof Error ? error.message : String(error),
+      ...(timedOut ? { timedOut: true } : {}),
     };
   }
 }

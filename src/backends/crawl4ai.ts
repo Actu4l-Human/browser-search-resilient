@@ -11,8 +11,9 @@ interface Crawl4aiPayload {
   url?: unknown;
   final_url?: unknown;
   title?: unknown;
-  markdown?: unknown;
   content?: unknown;
+  markdown?: unknown;
+  content_type?: unknown;
   links?: unknown;
   status_code?: unknown;
   error?: unknown;
@@ -53,49 +54,63 @@ function flattenLinks(value: unknown): LinkCandidate[] {
   visit(value);
   return candidates;
 }
-
-function chooseMarkdown(payload: Crawl4aiPayload): string {
-  const markdown = stringValue(payload.markdown);
-  if (markdown) return markdown;
-  return stringValue(payload.content);
+function chooseContent(payload: Crawl4aiPayload): string {
+  const content = stringValue(payload.content);
+  if (content) return content;
+  return stringValue(payload.markdown);
 }
 
 async function callCrawl4ai(url: string, maxCharacters: number, includeLinks: boolean, query?: string): Promise<Crawl4aiPayload> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.crawl4aiToken) headers.Authorization = `Bearer ${config.crawl4aiToken}`;
+  const signal = AbortSignal.timeout(config.crawl4aiTimeoutMs);
 
-  const response = await fetch(`${config.crawl4aiUrl.replace(/\/$/, '')}/extract`, {
-    method: 'POST',
-    signal: AbortSignal.timeout(config.crawl4aiTimeoutMs),
-    headers,
-    body: JSON.stringify({
-      url,
-      max_characters: maxCharacters,
-      include_links: includeLinks,
-      ...(query ? { query } : {}),
-    }),
-  });
-
-  let payload: unknown;
   try {
-    payload = await response.json();
-  } catch {
-    payload = undefined;
-  }
+    const response = await fetch(`${config.crawl4aiUrl.replace(/\/$/, '')}/extract`, {
+      method: 'POST',
+      signal,
+      headers,
+      body: JSON.stringify({
+        url,
+        max_characters: maxCharacters,
+        include_links: includeLinks,
+        ...(query ? { query } : {}),
+      }),
+    });
 
-  if (!response.ok) {
-    const detail = payload && typeof payload === 'object' ? stringValue((payload as Record<string, unknown>).detail) : '';
-    throw new Error(`Crawl4AI sidecar failed: HTTP ${response.status}${detail ? `: ${detail}` : ''}`);
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = undefined;
+    }
+
+    if (!response.ok) {
+      const detail = payload && typeof payload === 'object' ? stringValue((payload as Record<string, unknown>).detail) : '';
+      throw new Error(`Crawl4AI sidecar failed: HTTP ${response.status}${detail ? `: ${detail}` : ''}`);
+    }
+    return payload && typeof payload === 'object' ? (payload as Crawl4aiPayload) : {};
+  } catch (error) {
+    if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      const timeoutError = new Error(`Crawl4AI extraction timed out after ${config.crawl4aiTimeoutMs}ms`);
+      timeoutError.name = 'TimeoutError';
+      throw timeoutError;
+    }
+    throw error;
   }
-  return payload && typeof payload === 'object' ? (payload as Crawl4aiPayload) : {};
+}
+
+function timeoutMetadata(error: unknown): { timedOut?: true; cleanupUnconfirmed?: true } {
+  if (error instanceof Error && error.name === 'TimeoutError') return { timedOut: true, cleanupUnconfirmed: true };
+  return {};
 }
 
 export async function fetchCrawl4ai(url: string, maxCharacters: number, includeLinks: boolean, query?: string): Promise<FetchAttempt> {
   const started = performance.now();
+  let timedOut = false;
+  let cleanupUnconfirmed = false;
   try {
-    // The orchestrator still owns URL admission. The sidecar is intentionally a
-    // private extraction worker and is also forced through the DNS-pinning egress
-    // proxy in Compose for redirects and browser subresources.
+    // The orchestrator still owns URL admission. The private sidecar is configured separately in Compose, and browser redirects/subresources remain subject to the surrounding deployment policy.
     await resolvePublicUrl(url);
     if (!config.crawl4aiEnabled) throw new Error('Crawl4AI backend is disabled');
 
@@ -111,17 +126,19 @@ export async function fetchCrawl4ai(url: string, maxCharacters: number, includeL
         finalUrl,
         elapsedMs: Math.round(performance.now() - started),
         reason: stringValue(payload.error) || 'Crawl4AI extraction failed',
+        ...(timedOut ? { timedOut: true } : {}),
+        ...(cleanupUnconfirmed ? { cleanupUnconfirmed: true } : {}),
       };
     }
-
-    const limited = truncate(normalizeWhitespace(chooseMarkdown(payload)), maxCharacters);
+    const limited = truncate(normalizeWhitespace(chooseContent(payload)), maxCharacters);
     const status = numberValue(payload.status_code);
     const title = stringValue(payload.title);
+    const contentType = stringValue(payload.content_type) || 'text/html';
     const classification = classify({
       ...(status !== undefined ? { status } : {}),
       title,
       content: limited.value,
-      contentType: 'text/markdown',
+      contentType,
       finalUrl,
       rendered: true,
     });
@@ -137,17 +154,35 @@ export async function fetchCrawl4ai(url: string, maxCharacters: number, includeL
       content: limited.value,
       ...(includeLinks ? { links: dedupeLinks(flattenLinks(payload.links)) } : {}),
       ...(status !== undefined ? { httpStatus: status } : {}),
-      contentType: 'text/markdown',
+      contentType,
       elapsedMs: Math.round(performance.now() - started),
       truncated: limited.truncated,
+      ...(timedOut ? { timedOut: true } : {}),
+      ...(cleanupUnconfirmed ? { cleanupUnconfirmed: true } : {}),
     };
   } catch (error) {
+    const metadata = timeoutMetadata(error);
+    timedOut = timedOut || Boolean(metadata.timedOut);
+    cleanupUnconfirmed = cleanupUnconfirmed || Boolean(metadata.cleanupUnconfirmed);
+    if (isSecurityPolicyError(error)) {
+      return {
+        backend: 'crawl4ai',
+        outcome: 'policy_denied',
+        url,
+        elapsedMs: Math.round(performance.now() - started),
+        reason: error instanceof Error ? error.message : String(error),
+        ...(timedOut ? { timedOut: true } : {}),
+        ...(cleanupUnconfirmed ? { cleanupUnconfirmed: true } : {}),
+      };
+    }
     return {
       backend: 'crawl4ai',
-      outcome: isSecurityPolicyError(error) ? 'policy_denied' : 'network_error',
+      outcome: 'network_error',
       url,
       elapsedMs: Math.round(performance.now() - started),
       reason: error instanceof Error ? error.message : String(error),
+      ...(timedOut ? { timedOut: true } : {}),
+      ...(cleanupUnconfirmed ? { cleanupUnconfirmed: true } : {}),
     };
   }
 }

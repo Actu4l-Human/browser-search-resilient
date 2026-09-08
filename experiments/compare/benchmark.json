@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    "baseline",
+    "add-obscura",
+    "add-scrapling",
+    "replace-obscura",
+    "replace-scrapling"
+  ],
+  "seed": 20260907,
+  "trainingCases": [
+    "train-static",
+    "train-js-300",
+    "train-late-900",
+    "train-example"
+  ],
+  "testCases": [
+    "heldout-static",
+    "heldout-js-700",
+    "heldout-late-1800",
+    "heldout-module",
+    "heldout-redirect",
+    "live-hn",
+    "live-wikipedia-web-scraping",
+    "live-mdn-fetch-api"
+  ],
+  "tuningGrid": [
+    { "id": "t10000-s0", "browserTimeoutMs": 10000, "browserSettleMs": 0 },
+    { "id": "t10000-s500", "browserTimeoutMs": 10000, "browserSettleMs": 500 },
+    { "id": "t10000-s1500", "browserTimeoutMs": 10000, "browserSettleMs": 1500 },
+    { "id": "t20000-s0", "browserTimeoutMs": 20000, "browserSettleMs": 0 },
+    { "id": "t20000-s500", "browserTimeoutMs": 20000, "browserSettleMs": 500 },
+    { "id": "t20000-s1500", "browserTimeoutMs": 20000, "browserSettleMs": 1500 }
+  ],
+  "resources": {
+    "cpu": 4,
+    "memoryMiB": 8192
+  },
+  "requestDeadlineMs": 60000,
+  "repetitions": 5,
+  "concurrency": 1,
+  "diagnosticConcurrency": [2, 4]
+}

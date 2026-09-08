@@ -20,6 +20,8 @@ USER_AGENT = os.getenv(
     "Mozilla/5.0 (compatible; ResilientBrowserSearch/0.2; +https://github.com/actual-human)",
 )
 PAGE_TIMEOUT_MS = int(os.getenv("CRAWL4AI_PAGE_TIMEOUT_MS", "45000"))
+SETTLE_MS_RAW = os.getenv("BROWSER_SETTLE_MS")
+SETTLE_MS = int(SETTLE_MS_RAW) if SETTLE_MS_RAW not in {None, ""} else None
 PRUNE_THRESHOLD = float(os.getenv("CRAWL4AI_PRUNE_THRESHOLD", "0.48"))
 BM25_THRESHOLD = float(os.getenv("CRAWL4AI_BM25_THRESHOLD", "1.0"))
 MAX_SCROLL_STEPS = int(os.getenv("CRAWL4AI_MAX_SCROLL_STEPS", "3"))
@@ -70,11 +72,16 @@ class ExtractResponse(BaseModel):
     url: str
     final_url: str
     title: str = ""
-    markdown: str = ""
+    content: str = ""
+    content_type: str = ""
     links: Any = None
     status_code: int | None = None
+    markdown: str = ""
     content_filter: str = "none"
     error: str | None = None
+
+ExtractRequest.model_rebuild()
+ExtractResponse.model_rebuild()
 
 
 def _auth(authorization: str | None) -> None:
@@ -161,19 +168,22 @@ async def healthz() -> dict[str, str]:
 async def extract(request: ExtractRequest, authorization: str | None = Header(default=None)) -> ExtractResponse:
     _auth(authorization)
     markdown_generator, filter_name = _generator(request.content_filter, request.query)
-    run_config = CrawlerRunConfig(
-        cache_mode=CacheMode.BYPASS,
-        page_timeout=PAGE_TIMEOUT_MS,
-        markdown_generator=markdown_generator,
-        flatten_shadow_dom=True,
-        process_iframes=True,
-        remove_overlay_elements=True,
-        remove_forms=True,
-        scan_full_page=SCAN_FULL_PAGE,
-        max_scroll_steps=MAX_SCROLL_STEPS,
-        exclude_external_images=True,
-        exclude_all_images=True,
-    )
+    run_config_kwargs: dict[str, object] = {
+        "cache_mode": CacheMode.BYPASS,
+        "page_timeout": PAGE_TIMEOUT_MS,
+        "markdown_generator": markdown_generator,
+        "flatten_shadow_dom": True,
+        "process_iframes": True,
+        "remove_overlay_elements": True,
+        "remove_forms": True,
+        "scan_full_page": SCAN_FULL_PAGE,
+        "max_scroll_steps": MAX_SCROLL_STEPS,
+        "exclude_external_images": True,
+        "exclude_all_images": True,
+    }
+    if SETTLE_MS is not None:
+        run_config_kwargs["delay_before_return_html"] = SETTLE_MS / 1000
+    run_config = CrawlerRunConfig(**run_config_kwargs)
 
     try:
         async with _EXTRACT_SEMAPHORE:
@@ -192,9 +202,11 @@ async def extract(request: ExtractRequest, authorization: str | None = Header(de
         url=str(request.url),
         final_url=str(final_url),
         title=_title(result),
-        markdown=selected,
+        content=selected,
+        content_type="text/markdown",
         links=getattr(result, "links", None) if request.include_links else None,
         status_code=_status_code(result),
+        markdown=selected,
         content_filter=filter_name,
         error=str(error) if error else None,
     )

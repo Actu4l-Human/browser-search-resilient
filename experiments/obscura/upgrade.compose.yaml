@@ -1,0 +1,49 @@
+services:
+  browser-search:
+    image: actualhuman/rbs-proxy-upgrade-browser-search:current
+
+  egress-proxy:
+    image: actualhuman/rbs-proxy-upgrade-egress-proxy:current
+
+  searxng:
+    image: actualhuman/rbs-proxy-upgrade-searxng:current
+
+  crawl4ai:
+    image: actualhuman/rbs-proxy-upgrade-crawl4ai:current
+
+  camofox:
+    image: actualhuman/rbs-proxy-upgrade-camofox:current
+
+  obscura:
+    image: actualhuman/rbs-proxy-upgrade-obscura:current
+
+  egress-canary:
+    image: node:26-bookworm-slim
+    command: ["node", "/opt/canary.mjs"]
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 64m
+    cpus: 0.25
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    environment:
+      CANARY_PORT: 18080
+    volumes:
+      - ./experiments/obscura/canary.mjs:/opt/canary.mjs:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:18080/counts').then(async (r) => { if (!r.ok) process.exit(1); await r.json(); process.exit(0); }).catch(() => process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 2s
+    networks:
+      camofox-control: {}
+      crawl4ai-control: {}
+      obscura-control: {}

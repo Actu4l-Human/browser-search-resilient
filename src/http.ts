@@ -10,6 +10,7 @@ import { checkBearer } from './security/auth.js';
 import { metrics } from './util/metrics.js';
 import { RateLimiter } from './util/rate-limiter.js';
 import { closeCloakBrowser } from './backends/cloakbrowser.js';
+import { closeObscuraBrowsers } from './backends/obscura.js';
 
 const app: FastifyInstance = createMcpFastifyApp({
   host: config.host,
@@ -19,6 +20,7 @@ const app: FastifyInstance = createMcpFastifyApp({
 
 const rateLimiter = new RateLimiter(config.rateLimitRpm, config.rateLimitBurst);
 let shuttingDown = false;
+const startedAtByRequest = new WeakMap<FastifyRequest, bigint>();
 
 function clientKey(request: FastifyRequest): string {
   return request.ip ?? 'unknown';
@@ -38,13 +40,14 @@ app.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) =
 
 app.addHook('onRequest', async (request: FastifyRequest) => {
   metrics.recordRequest();
-  (request as any).startedAt = process.hrtime.bigint();
+  startedAtByRequest.set(request, process.hrtime.bigint());
 });
 
 app.addHook('onResponse', async (request: FastifyRequest, reply: FastifyReply) => {
   metrics.recordResponse(reply.statusCode);
-  const startedAt = (request as any).startedAt as bigint | undefined;
+  const startedAt = startedAtByRequest.get(request);
   if (startedAt) metrics.observeDuration(Number(process.hrtime.bigint() - startedAt) / 1e6);
+  startedAtByRequest.delete(request);
 });
 
 app.get('/healthz', async () => ({ status: 'ok' }));
@@ -53,11 +56,9 @@ app.get('/metrics', async (_request: FastifyRequest, reply: FastifyReply) => {
 });
 app.get('/readyz', async (_request: FastifyRequest, reply: FastifyReply) => {
   const state = await health(false);
-  const ready =
-    state.searxng === 'ok' &&
-    state.camofox === 'ok' &&
-    state.egressProxy === 'ok' &&
-    (state.crawl4ai === 'ok' || state.crawl4ai === 'disabled');
+  const requiredServices = new Set<string>(['searxng', 'egressProxy']);
+  for (const service of (state.requiredServices as string[] | undefined) ?? []) requiredServices.add(service);
+  const ready = [...requiredServices].every((service) => state[service] === 'ok');
   return reply.code(ready ? 200 : 503).send(state);
 });
 
@@ -111,7 +112,7 @@ const shutdown = async (signal: string): Promise<void> => {
   app.server.closeIdleConnections?.();
 
   await inFlight.drain(15_000);
-  await closeCloakBrowser();
+  await Promise.all([closeCloakBrowser(), closeObscuraBrowsers()]);
   await mcpHandler.close();
   await app.close().catch((error: unknown) => {
     log.warn('Fastify close returned an error during shutdown', {

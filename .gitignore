@@ -9,3 +9,5 @@ coverage/
 *.tar.gz
 .DS_Store
 .kilo/
+experiments/obscura/results/
+experiments/compare/results/
